@@ -1,0 +1,16 @@
+Matrix A
+1 0
+0 1
+
+Vector x0
+0
+0
+
+T
+1
+
+N
+20
+
+c_u
+1*max(abs(phi1+phi2),abs(phi1-phi2))
