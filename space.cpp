@@ -5,11 +5,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <ctype.h>
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include "shader_s.h"
@@ -113,8 +108,8 @@ static void render_text(text_render_object *text_render_obj, const char *text,
                  float x, float y, float scale, glm::vec3 color)
 {
 	// activate corresponding render state
-	text_render_obj->shader->use();
-	unsigned int textColorLoc = glGetUniformLocation(text_render_obj->shader->ID,
+	shader_use(text_render_obj->shader_id);
+	unsigned int textColorLoc = glGetUniformLocation(text_render_obj->shader_id,
                                                    "textColor");
 	glUniform3f(textColorLoc, color.x, color.y, color.z);
 	glActiveTexture(GL_TEXTURE0);
@@ -171,14 +166,14 @@ static int string_size(character *characters, const char *text)
 	return result;
 }
 
-static void set_matrix(Shader *shader, const char *locname, glm::mat4 *mat)
+static void shader_set_matrix(unsigned int shader_id, const char *locname, glm::mat4 *mat)
 {
 	unsigned int loc;
-	loc = glGetUniformLocation(shader->ID, locname);
+	loc = glGetUniformLocation(shader_id, locname);
 	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(*mat));
 }
 
-void draw_axis(unsigned int axes_VAO, Shader *shader, float aclip_x,
+void draw_axis(unsigned int axes_VAO, unsigned int shader_id, float aclip_x,
 		float aclip_y, int is_x)
 {
 	glm::mat4 e_mat = glm::mat4(1.0f);
@@ -194,8 +189,8 @@ void draw_axis(unsigned int axes_VAO, Shader *shader, float aclip_x,
 		model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 	}
 
-	shader->use();
-	set_matrix(shader, "model", &model);
+	shader_use(shader_id);
+	shader_set_matrix(shader_id, "model", &model);
 
 	glDrawArrays(GL_LINES, 0, 20);
 }
@@ -211,8 +206,8 @@ void draw_numbering(text_render_object *text_render_obj, float aclip_x,
 	model = glm::scale(model, glm::vec3(0.1f*aclip_x, 0.1f*aclip_y, 1.0f));
 	model = glm::translate(model, glm::vec3(offset_x/(0.1f*aclip_x),
 				0.0f, 0.0f));
-	text_render_obj->shader->use();
-	set_matrix(text_render_obj->shader, "model", &model);
+	shader_use(text_render_obj->shader_id);
+	shader_set_matrix(text_render_obj->shader_id, "model", &model);
 
 	magic = -0.5f*0.01f;
 	for(i = 6*6; i < count_vertices; i += 2*6) {
@@ -227,7 +222,7 @@ void draw_numbering(text_render_object *text_render_obj, float aclip_x,
 	model = glm::scale(model, glm::vec3(0.1f*aclip_x, 0.1f*aclip_y, 1.0f));
 	model = glm::translate(model, glm::vec3(0.0f, offset_y/(0.1f*aclip_y),
 				0.0f));
-	set_matrix(text_render_obj->shader, "model", &model);
+	shader_set_matrix(text_render_obj->shader_id, "model", &model);
 	magic = -0.5f*text_render_obj->characters[48].size.y*0.01f;
 	for(i = 6*6; i < count_vertices; i += 2*6) {
 		pos = axis_vertices[i];
@@ -312,12 +307,10 @@ void prepare_text(text_render_object *text_render_obj)
 	gen_characters(&characters);
 	text_render_obj->characters = characters;
 
-	Shader *text_shader = new Shader("text.vs", "text.fs");
-
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	
-	text_render_obj->shader = text_shader;
+	shader_create(&text_render_obj->shader_id, "text.vs", "text.fs");
 
 	unsigned int text_VBO, text_VAO;
 	glGenVertexArrays(1, &text_VAO);
@@ -358,14 +351,14 @@ void prepare_plane(space **plane)
 	*plane = (space *) malloc(sizeof(space));
 	prepare_window(&(*plane)->window);
 	prepare_axes(&(*plane)->axes_VBO, &(*plane)->axes_VAO);
-	(*plane)->shader = new Shader("shader.vs", "shader.fs");
+	shader_create(&(*plane)->shader_id, "shader.vs", "shader.fs");
 	(*plane)->text_render_obj = (text_render_object *) malloc(
 			sizeof(text_render_object));
 	prepare_text((*plane)->text_render_obj);
 }
 
 void draw_graph(space *plane,
-		void (*draw_something)(unsigned int, int, Shader*),
+		void (*draw_something)(unsigned int, int, unsigned int),
 		unsigned int VAO, int count_vertices)
 {
 	glm::mat4 projection, view;
@@ -390,20 +383,20 @@ void draw_graph(space *plane,
 				-aclip_y+offset_y, aclip_y+offset_y, 0.0f, 1.0f);
 		*/
 		projection = glm::ortho(-aclip_x, aclip_x, -aclip_y, aclip_y, 0.0f, 1.0f);
-		plane->shader->use();
-		set_matrix(plane->shader, "projection", &projection);
+		shader_use(plane->shader_id);
+		shader_set_matrix(plane->shader_id, "projection", &projection);
 		view = glm::mat4(1.0f);
 		view = glm::translate(view, glm::vec3(-offset_x, -offset_y, -1.0f));
-		set_matrix(plane->shader, "view", &view);
+		shader_set_matrix(plane->shader_id, "view", &view);
 		glBindVertexArray(plane->axes_VAO);
 		glLineWidth(2.0f);
-		draw_axis(plane->axes_VAO, plane->shader, aclip_x, aclip_y, 1);
-		draw_axis(plane->axes_VAO, plane->shader, aclip_x, aclip_y, 0);
+		draw_axis(plane->axes_VAO, plane->shader_id, aclip_x, aclip_y, 1);
+		draw_axis(plane->axes_VAO, plane->shader_id, aclip_x, aclip_y, 0);
 		glLineWidth(0.0f);
-		draw_something(VAO, count_vertices, plane->shader);
-		plane->text_render_obj->shader->use();
-		set_matrix(plane->text_render_obj->shader, "projection", &projection);
-		set_matrix(plane->text_render_obj->shader, "view", &view);
+		draw_something(VAO, count_vertices, plane->shader_id);
+		shader_use(plane->text_render_obj->shader_id);
+		shader_set_matrix(plane->text_render_obj->shader_id, "projection", &projection);
+		shader_set_matrix(plane->text_render_obj->shader_id, "view", &view);
 		draw_numbering(plane->text_render_obj, aclip_x, aclip_y);
 
 		glfwSwapBuffers(plane->window);
@@ -411,10 +404,11 @@ void draw_graph(space *plane,
 	}
 }
 
+
 void delete_plane(space *plane)
 {
-	delete plane->shader;
-	delete plane->text_render_obj->shader;
+	glDeleteProgram(plane->shader_id);
+	glDeleteProgram(plane->text_render_obj->shader_id);
 	free(plane->text_render_obj->characters);
 	glDeleteVertexArrays(1, &plane->axes_VAO);
 	glDeleteBuffers(1, &plane->axes_VBO);

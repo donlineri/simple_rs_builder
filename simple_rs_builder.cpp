@@ -11,7 +11,6 @@
 #include <setoper.h>
 #include <cdd.h>
 #include "tinyexpr.h"
-#include "shader_s.h"
 #include "space.hpp"
 
 enum {
@@ -24,12 +23,13 @@ typedef struct sup_f_s {
 	double phi1, phi2;
 } sup_f;
 
-void draw_cp(unsigned int VAO, int count_vertices, Shader *shader)
+//TODO shader_set_matrix add here
+void draw_cp(unsigned int VAO, int count_vertices, unsigned int shader_id)
 {
 	glm::mat4 model;
 	unsigned int modelLoc;
 	model = glm::mat4(1.0f);
-	modelLoc = glGetUniformLocation(shader->ID, "model");
+	modelLoc = glGetUniformLocation(shader_id, "model");
 	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 	glBindVertexArray(VAO);
 	glDrawArrays(GL_TRIANGLE_FAN, 0, count_vertices);
