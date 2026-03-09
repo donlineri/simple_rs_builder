@@ -1,10 +1,9 @@
-#include "space.hpp"
+#include "space.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
 #include <unistd.h>
-#include <ctype.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include "shader_s.h"
@@ -105,13 +104,13 @@ static void prepare_window(GLFWwindow **window_ptr)
 }
 
 static void render_text(text_render_object *text_render_obj, const char *text,
-                 float x, float y, float scale, glm::vec3 color)
+                 float x, float y, float scale, vec3 color)
 {
 	// activate corresponding render state
 	shader_use(text_render_obj->shader_id);
 	unsigned int textColorLoc = glGetUniformLocation(text_render_obj->shader_id,
                                                    "textColor");
-	glUniform3f(textColorLoc, color.x, color.y, color.z);
+	glUniform3f(textColorLoc, color[0], color[1], color[2]);
 	glActiveTexture(GL_TEXTURE0);
 	glBindVertexArray(text_render_obj->VAO);
 
@@ -125,11 +124,11 @@ static void render_text(text_render_object *text_render_obj, const char *text,
 		int index = text[c];
 		character ch = text_render_obj->characters[index];
 
-		float xpos = x + ch.bearing.x * scale;
-		float ypos = y - (ch.size.y - ch.bearing.y) * scale;
+		float xpos = x + ch.bearing[0] * scale;
+		float ypos = y - (ch.size[1] - ch.bearing[1]) * scale;
 
-		float w = ch.size.x * scale;
-		float h = ch.size.y * scale;
+		float w = ch.size[0] * scale;
+		float h = ch.size[1] * scale;
 		// update VBO for each character
 		float vertices[6][4] = {
 				{ xpos,     ypos + h,   0.0f, 0.0f },            
@@ -166,31 +165,47 @@ static int string_size(character *characters, const char *text)
 	return result;
 }
 
-static void shader_set_matrix(unsigned int shader_id, const char *locname, glm::mat4 *mat)
+static void shader_set_matrix(unsigned int shader_id, const char *locname, mat4 mat)
 {
 	unsigned int loc;
 	loc = glGetUniformLocation(shader_id, locname);
-	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(*mat));
+	glUniformMatrix4fv(loc, 1, GL_FALSE, (GLfloat*) mat);
 }
 
 void draw_axis(unsigned int axes_VAO, unsigned int shader_id, float aclip_x,
 		float aclip_y, int is_x)
 {
-	glm::mat4 e_mat = glm::mat4(1.0f);
-	glm::mat4 model;
+	mat4 model;
+	vec3 a;
+	glmc_mat4_identity(model);
 
 	if(is_x) {
-		model = glm::scale(e_mat, glm::vec3(1.0f*aclip_x, 0.1f*aclip_y, 1.0f));
-		model = glm::translate(model, glm::vec3(offset_x/aclip_x, 0.0f, 0.0f));
+		a[0] = 1.0f*aclip_x;
+		a[1] = 0.1f*aclip_y;
+		a[2] = 1.0f;
+		glmc_scale(model, a);
+		a[0] = offset_x/aclip_x;
+		a[1] = 0.0f;
+		a[2] = 0.0f;
+		glmc_translate(model, a);
 	}
 	else {
-		model = glm::scale(e_mat, glm::vec3(0.1f*aclip_x, 1.0f*aclip_y, 1.0f));
-		model = glm::translate(model, glm::vec3(0.0f, offset_y/aclip_y, 0.0f));
-		model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		a[0] = 0.1f*aclip_x;
+		a[1] = 1.0f*aclip_y;
+		a[2] = 1.0f;
+		glmc_scale(model, a);
+		a[0] = 0.0f;
+		a[1] = offset_y/aclip_y;
+		a[2] = 0.0f;
+		glmc_translate(model, a);
+		a[0] = 0.0f;
+		a[1] = 0.0f;
+		a[2] = 1.0f;
+		glmc_rotate(model, glm_rad(90.0f), a);
 	}
 
 	shader_use(shader_id);
-	shader_set_matrix(shader_id, "model", &model);
+	shader_set_matrix(shader_id, "model", model);
 
 	glDrawArrays(GL_LINES, 0, 20);
 }
@@ -201,35 +216,52 @@ void draw_numbering(text_render_object *text_render_obj, float aclip_x,
 	int i, count_vertices = sizeof(axis_vertices)/sizeof(float);
 	float magic, pos;
 	char buf[50];
-	glm::mat4 model;
-	model = glm::mat4(1.0f);
-	model = glm::scale(model, glm::vec3(0.1f*aclip_x, 0.1f*aclip_y, 1.0f));
-	model = glm::translate(model, glm::vec3(offset_x/(0.1f*aclip_x),
-				0.0f, 0.0f));
+	mat4 model;
+	vec3 a;
+	glmc_mat4_identity(model);
+	a[0] = 0.1f*aclip_x;
+	a[1] = 0.1f*aclip_y;
+	a[2] = 1.0f;
+	glmc_scale(model, a);
+	a[0] = offset_x/(0.1f*aclip_x);
+	a[1] = 0.0f;
+	a[2] = 0.0f;
+	glmc_translate(model, a);
 	shader_use(text_render_obj->shader_id);
-	shader_set_matrix(text_render_obj->shader_id, "model", &model);
+	shader_set_matrix(text_render_obj->shader_id, "model", model);
 
 	magic = -0.5f*0.01f;
 	for(i = 6*6; i < count_vertices; i += 2*6) {
 		pos = axis_vertices[i];
 		snprintf(buf, 50, "%.2f", offset_x+pos*aclip_x);
+		a[0] = 0.5f;
+		a[1] = 0.8f;
+		a[2] = 0.2f;
 		render_text(text_render_obj, buf,
 				10.0f*pos+magic*string_size(text_render_obj->characters, buf), -0.55,
-				0.01f, glm::vec3(0.5f, 0.8f, 0.2f));
+				0.01f, a);
 	}
 
-	model = glm::mat4(1.0f);
-	model = glm::scale(model, glm::vec3(0.1f*aclip_x, 0.1f*aclip_y, 1.0f));
-	model = glm::translate(model, glm::vec3(0.0f, offset_y/(0.1f*aclip_y),
-				0.0f));
-	shader_set_matrix(text_render_obj->shader_id, "model", &model);
-	magic = -0.5f*text_render_obj->characters[48].size.y*0.01f;
+	glmc_mat4_identity(model);
+	a[0] = 0.1f*aclip_x;
+	a[1] = 0.1f*aclip_y;
+	a[2] = 1.0f;
+	glmc_scale(model, a);
+	a[0] = 0.0f;
+	a[1] = offset_y/(0.1f*aclip_y);
+	a[2] = 0.0f;
+	glmc_translate(model, a);
+	shader_set_matrix(text_render_obj->shader_id, "model", model);
+	magic = -0.5f*text_render_obj->characters[48].size[1]*0.01f;
 	for(i = 6*6; i < count_vertices; i += 2*6) {
 		pos = axis_vertices[i];
 		snprintf(buf, 50, "%.2f", offset_y+pos*aclip_y);
+		a[0] = 0.5f;
+		a[1] = 0.8f;
+		a[2] = 0.2f;
 		render_text(text_render_obj, buf, 0.35,
 				10.0f*pos+magic,
-				0.01f, glm::vec3(0.5f, 0.8f, 0.2f));
+				0.01f, a);
 	}
 }
 
@@ -284,16 +316,12 @@ void gen_characters(character **characters)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		// now store character for later use
-		//Characters[c] = malloc(sizeof(struct Character));
-		//Character *character = malloc(sizeof(Character));
-		chars[c] = {
-			texture,
-			glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
-			glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
-			(unsigned int) face->glyph->advance.x
-		};
-		//Characters[c] = character;
-		//Characters.insert(std::pair<char, Character>(c, character));
+		chars[c].texture_id = texture;
+		chars[c].size[0] = face->glyph->bitmap.width;
+		chars[c].size[1] = face->glyph->bitmap.rows;
+		chars[c].bearing[0] = face->glyph->bitmap_left;
+		chars[c].bearing[1] = face->glyph->bitmap_top;
+		chars[c].advance = (unsigned int) face->glyph->advance.x;
 	}
 
 	FT_Done_Face(face);
@@ -361,7 +389,8 @@ void draw_graph(space *plane,
 		void (*draw_something)(unsigned int, int, unsigned int),
 		unsigned int VAO, int count_vertices)
 {
-	glm::mat4 projection, view;
+	mat4 projection, view;
+	vec3 a;
 	float aclip_x, aclip_y;
 	printf("cp_count:%d\n", count_vertices);
 	while(!glfwWindowShouldClose(plane->window))
@@ -382,12 +411,15 @@ void draw_graph(space *plane,
 		projection = glm::ortho(-aclip_x+offset_x, aclip_x+offset_x,
 				-aclip_y+offset_y, aclip_y+offset_y, 0.0f, 1.0f);
 		*/
-		projection = glm::ortho(-aclip_x, aclip_x, -aclip_y, aclip_y, 0.0f, 1.0f);
+		glmc_ortho(-aclip_x, aclip_x, -aclip_y, aclip_y, 0.0f, 1.0f, projection);
 		shader_use(plane->shader_id);
-		shader_set_matrix(plane->shader_id, "projection", &projection);
-		view = glm::mat4(1.0f);
-		view = glm::translate(view, glm::vec3(-offset_x, -offset_y, -1.0f));
-		shader_set_matrix(plane->shader_id, "view", &view);
+		shader_set_matrix(plane->shader_id, "projection", projection);
+		glmc_mat4_identity(view);
+		a[0] = -offset_x;
+		a[1] = -offset_y;
+		a[2] = -1.0f;
+		glmc_translate(view, a);
+		shader_set_matrix(plane->shader_id, "view", view);
 		glBindVertexArray(plane->axes_VAO);
 		glLineWidth(2.0f);
 		draw_axis(plane->axes_VAO, plane->shader_id, aclip_x, aclip_y, 1);
@@ -395,8 +427,8 @@ void draw_graph(space *plane,
 		glLineWidth(0.0f);
 		draw_something(VAO, count_vertices, plane->shader_id);
 		shader_use(plane->text_render_obj->shader_id);
-		shader_set_matrix(plane->text_render_obj->shader_id, "projection", &projection);
-		shader_set_matrix(plane->text_render_obj->shader_id, "view", &view);
+		shader_set_matrix(plane->text_render_obj->shader_id, "projection", projection);
+		shader_set_matrix(plane->text_render_obj->shader_id, "view", view);
 		draw_numbering(plane->text_render_obj, aclip_x, aclip_y);
 
 		glfwSwapBuffers(plane->window);

@@ -1,17 +1,17 @@
 CFLAGS = -ggdb -Wall
-LFLAGS = -lGL -lX11 -lpthread -lXrandr -lXi -ldl -lm -lglfw -lfreetype -lcdd
+LFLAGS = -lGL -lX11 -lpthread -lXrandr -lXi -ldl -lm -lglfw -lfreetype -lcdd -lcglm
 LIBCDD = lib/libcdd.a
 FREETYPE2_CFLAGS = -I/usr/include/freetype2 -I/usr/include/libpng16 \
 									 -I/usr/include/harfbuzz -I/usr/include/glib-2.0 \
 									 -I/usr/lib64/glib-2.0/include
 
-simple_rs_builder: simple_rs_builder.cpp tinyexpr.o glad.o shader_s.o space.o | $(LIBCDD)
-	$(CXX) $(CFLAGS) $^ $(FREETYPE2_CFLAGS) -I include -L lib -o $@ $(LFLAGS)
-dontdelete: simple_rs_builder.cpp tinyexpr.o glad.o shader_s.o space.o | $(LIBCDD)
-	$(CXX) -DDONTDELETE $(CFLAGS) $^ $(FREETYPE2_CFLAGS) -I include -L lib \
+simple_rs_builder: simple_rs_builder.c tinyexpr.o glad.o shader_s.o space.o | $(LIBCDD)
+	$(CC) $(CFLAGS) $^ $(FREETYPE2_CFLAGS) -I include -L lib -o $@ $(LFLAGS)
+dontdelete: simple_rs_builder.c tinyexpr.o glad.o shader_s.o space.o | $(LIBCDD)
+	$(CC) -DDONTDELETE $(CFLAGS) $^ $(FREETYPE2_CFLAGS) -I include -L lib \
 		-o simple_rs_builder $(LFLAGS)
-space.o: space.cpp include/space.hpp include/shader_s.h
-	$(CXX) $(CFLAGS) $< $(FREETYPE2_CFLAGS) -I include -L lib -c -o $@ $(LFLAGS)
+space.o: space.c include/space.h include/shader_s.h
+	$(CC) $(CFLAGS) $< $(FREETYPE2_CFLAGS) -I include -L lib -c -o $@ $(LFLAGS)
 glad.o: glad.c include/glad/glad.h
 	$(CC) $(CFLAGS) -I include -c $< -o $@
 %.o: %.c include/%.h

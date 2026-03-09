@@ -5,13 +5,11 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <glad/glad.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
+#include <cglm/call.h>
 #include <setoper.h>
 #include <cdd.h>
 #include "tinyexpr.h"
-#include "space.hpp"
+#include "space.h"
 
 enum {
 	max_pathname = 255,
@@ -26,11 +24,11 @@ typedef struct sup_f_s {
 //TODO shader_set_matrix add here
 void draw_cp(unsigned int VAO, int count_vertices, unsigned int shader_id)
 {
-	glm::mat4 model;
+	mat4 model;
 	unsigned int modelLoc;
-	model = glm::mat4(1.0f);
+	glmc_mat4_identity(model);
 	modelLoc = glGetUniformLocation(shader_id, "model");
-	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, (GLfloat*) model);
 	glBindVertexArray(VAO);
 	glDrawArrays(GL_TRIANGLE_FAN, 0, count_vertices);
 }

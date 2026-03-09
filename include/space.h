@@ -1,16 +1,14 @@
 #ifndef SPACE_HPP_SENTRY
 #define SPACE_HPP_SENTRY
 #include <glad/glad.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
+#include <cglm/call.h>
 #include <GLFW/glfw3.h>
 
 typedef struct character_s {
 	unsigned int texture_id;  // ID handle of the glyph texture
-	glm::ivec2   size;       // Size of glyph
-	glm::ivec2   bearing;    // Offset from baseline to left/top of glyph
-	unsigned int advance;    // Offset to advance to next glyph
+	ivec2   size;             // Size of glyph
+	ivec2   bearing;          // Offset from baseline to left/top of glyph
+	unsigned int advance;     // Offset to advance to next glyph
 } character;
 
 typedef struct text_render_object_s {
