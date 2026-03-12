@@ -10,6 +10,9 @@
 #include <cdd.h>
 #include "tinyexpr.h"
 #include "space.h"
+#include "shader_s.h"
+
+#define ALMOSTZERO 0.00001
 
 enum {
 	max_pathname = 255,
@@ -21,16 +24,25 @@ typedef struct sup_f_s {
 	double phi1, phi2;
 } sup_f;
 
-//TODO shader_set_matrix add here
 void draw_cp(unsigned int VAO, int count_vertices, unsigned int shader_id)
 {
 	mat4 model;
-	unsigned int modelLoc;
 	glmc_mat4_identity(model);
-	modelLoc = glGetUniformLocation(shader_id, "model");
-	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, (GLfloat*) model);
+	shader_set_matrix(shader_id, "model", model);
 	glBindVertexArray(VAO);
 	glDrawArrays(GL_TRIANGLE_FAN, 0, count_vertices);
+}
+
+void draw_dots(unsigned int VAO, int count_vertices, unsigned int shader_id)
+{
+	int i;
+	mat4 model;
+	glmc_mat4_identity(model);
+	shader_set_matrix(shader_id, "model", model);
+	glLineWidth(2.0f);
+	glBindVertexArray(VAO);
+	for(i = 0; i < count_vertices / 4; i++)
+		glDrawArrays(GL_TRIANGLE_FAN, i*4, 4);
 }
 
 void swap_double(double *a, double *b)
@@ -191,15 +203,16 @@ _L99:;
   dd_free_global_constants();  /* At the end, this should be called. */
 }
 
-void prepare_convex_polygon(unsigned int *cp_VBO, unsigned int *cp_VAO,
-		unsigned int cp_count_vertices, double *cp_vertices)
+void prepare_object(unsigned int *VBO, unsigned int *VAO,
+		unsigned int *shader_id, int count_vertices, double *vertices)
 {
-	glGenVertexArrays(1, cp_VAO);
-	glGenBuffers(1, cp_VBO);
-	glBindVertexArray(*cp_VAO);
-	glBindBuffer(GL_ARRAY_BUFFER, *cp_VBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(double)*(cp_count_vertices)*6,
-			cp_vertices, GL_STATIC_DRAW);
+	glGenVertexArrays(1, VAO);
+	glGenBuffers(1, VBO);
+	shader_create(shader_id, "shader.vs", "shader.fs");
+	glBindVertexArray(*VAO);
+	glBindBuffer(GL_ARRAY_BUFFER, *VBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(double)*(count_vertices)*6,
+			vertices, GL_STATIC_DRAW);
 	glVertexAttribPointer(0, 3, GL_DOUBLE, GL_FALSE, 6*sizeof(double),
 			(void *)0);
 	glEnableVertexAttribArray(0); //0 = Location in Vertex shader
@@ -210,13 +223,13 @@ void prepare_convex_polygon(unsigned int *cp_VBO, unsigned int *cp_VAO,
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	//unbind VAO
 	glBindVertexArray(0);
-	free(cp_vertices);
 }
 
-void delete_convex_polygon(unsigned int cp_VBO, unsigned int cp_VAO)
+void delete_object(unsigned int VBO, unsigned int VAO, unsigned int shader_id)
 {
-	glDeleteVertexArrays(1, &cp_VAO);
-	glDeleteBuffers(1, &cp_VBO);
+	glDeleteProgram(shader_id);
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBO);
 }
 
 void printmat(double **a, int size)
@@ -543,26 +556,150 @@ void get_omega(double ***omega, int *omega_size)
 	te_free(c_u.expr);
 }
 
+void get_dots_vertices(double *cp_v, int cp_v_count, double **dots_v,
+		int *dots_v_count)
+{
+	int i, j, *cp_num_v, max_count, is_checked;
+	float size;
+	double *cp_dist_v;
+	cp_dist_v = malloc(sizeof(double) * cp_v_count);
+	cp_num_v = malloc(sizeof(int) * cp_v_count);
+	for(i = 0; i < cp_v_count; i++) {
+		cp_dist_v[i] = cp_v[i*6]*cp_v[i*6] + cp_v[i*6+1]*cp_v[i*6+1];
+		cp_num_v[i] = i;
+	}
+	for(j = cp_v_count; j > 1; j--)
+		for(i = 1; i < j; i++)
+			if(cp_dist_v[i-1] > cp_dist_v[i]) {
+				swap_double(&cp_dist_v[i-1], &cp_dist_v[i]);
+				swap_int(&cp_num_v[i-1], &cp_num_v[i]);
+			}
+	max_count = 0;
+	is_checked = 0;
+	for(i = cp_v_count - 1; i > 0; i--)
+		if(fabs(cp_dist_v[i] - cp_dist_v[i-1]) < ALMOSTZERO)
+			max_count++;
+		else {
+			break;
+			is_checked = 1;
+		}
+	if(!is_checked && (fabs(cp_dist_v[1] - cp_dist_v[0]) < ALMOSTZERO))
+		max_count++;
+	/*
+	for(i = 0; i < cp_v_count; i++)
+		printf("dist: %lf\n", cp_dist_v[i]);
+	printf("max_count: %d\n", max_count);
+	*/
+	size = get_clip()/250;
+	/*
+	*dots_v = malloc(sizeof(double) * (cp_v_count*6*4));
+	*dots_v_count = 4*cp_v_count;
+	*/
+	*dots_v = malloc(sizeof(double) * (max_count*6*4));
+	*dots_v_count = 4*max_count;
+	/*
+	for(i = 0; i < cp_v_count; i++) {
+		(*dots_v)[i*6*4] = cp_v[i*6] + size;
+		(*dots_v)[i*6*4+1] = cp_v[i*6+1] - size;
+		(*dots_v)[i*6*4+2] = 0;
+		(*dots_v)[i*6*4+3] = .322f;
+		(*dots_v)[i*6*4+4] = .576f;
+		(*dots_v)[i*6*4+5] = .839f;
+
+		(*dots_v)[i*6*4+6] = cp_v[i*6] + size;
+		(*dots_v)[i*6*4+7] = cp_v[i*6+1] + size;
+		(*dots_v)[i*6*4+8] = 0;
+		(*dots_v)[i*6*4+9] = .322f;
+		(*dots_v)[i*6*4+10] = .576f;
+		(*dots_v)[i*6*4+11] = .839f;
+
+		(*dots_v)[i*6*4+12] = cp_v[i*6] - size;
+		(*dots_v)[i*6*4+13] = cp_v[i*6+1] + size;
+		(*dots_v)[i*6*4+14] = 0;
+		(*dots_v)[i*6*4+15] = .322f;
+		(*dots_v)[i*6*4+16] = .576f;
+		(*dots_v)[i*6*4+17] = .839f;
+
+		(*dots_v)[i*6*4+18] = cp_v[i*6] - size;
+		(*dots_v)[i*6*4+19] = cp_v[i*6+1] - size;
+		(*dots_v)[i*6*4+20] = 0;
+		(*dots_v)[i*6*4+21] = .322f;
+		(*dots_v)[i*6*4+22] = .576f;
+		(*dots_v)[i*6*4+23] = .839f;
+	}
+	*/
+	for(j = 0; j < max_count; j++) {
+		i = cp_num_v[cp_v_count - 1 - j];
+		(*dots_v)[j*6*4] = cp_v[i*6] + size;
+		(*dots_v)[j*6*4+1] = cp_v[i*6+1] - size;
+		(*dots_v)[j*6*4+2] = 0;
+		(*dots_v)[j*6*4+3] = .322f;
+		(*dots_v)[j*6*4+4] = .576f;
+		(*dots_v)[j*6*4+5] = .839f;
+
+		(*dots_v)[j*6*4+6] = cp_v[i*6] + size;
+		(*dots_v)[j*6*4+7] = cp_v[i*6+1] + size;
+		(*dots_v)[j*6*4+8] = 0;
+		(*dots_v)[j*6*4+9] = .322f;
+		(*dots_v)[j*6*4+10] = .576f;
+		(*dots_v)[j*6*4+11] = .839f;
+
+		(*dots_v)[j*6*4+12] = cp_v[i*6] - size;
+		(*dots_v)[j*6*4+13] = cp_v[i*6+1] + size;
+		(*dots_v)[j*6*4+14] = 0;
+		(*dots_v)[j*6*4+15] = .322f;
+		(*dots_v)[j*6*4+16] = .576f;
+		(*dots_v)[j*6*4+17] = .839f;
+
+		(*dots_v)[j*6*4+18] = cp_v[i*6] - size;
+		(*dots_v)[j*6*4+19] = cp_v[i*6+1] - size;
+		(*dots_v)[j*6*4+20] = 0;
+		(*dots_v)[j*6*4+21] = .322f;
+		(*dots_v)[j*6*4+22] = .576f;
+		(*dots_v)[j*6*4+23] = .839f;
+	}
+	free(cp_dist_v);
+	free(cp_num_v);
+}
+
 int main()
 {
 	space *plane;
-	unsigned int cp_VBO, cp_VAO;
-	int omega_size, cp_count_vertices;
-	double *cp_vertices, **omega;
+	unsigned int cp_VBO, cp_VAO, cp_shader_id, dots_VBO, dots_VAO,
+							 dots_shader_id, VAOs[2], shader_ids[2];
+	int omega_size, cp_count_vertices, dots_count_vertices, vcounts[2];
+	double *cp_data, *dots_data, **omega;
 	char cddfile_name[max_pathname];
 	FILE *cddfile;
+	void (*drawings[2])(unsigned int, int, unsigned int);
 
 	get_omega(&omega, &omega_size);
 	get_file(&cddfile, cddfile_name, omega, omega_size);
 	freemat(omega, omega_size);
-	get_cp_vertices(cddfile, &cp_vertices, &cp_count_vertices);
+	get_cp_vertices(cddfile, &cp_data, &cp_count_vertices);
+	get_dots_vertices(cp_data, cp_count_vertices, &dots_data,
+			&dots_count_vertices);
 #ifndef DONTDELETE
 	unlink(cddfile_name);
 #endif
 	prepare_plane(&plane);
-	prepare_convex_polygon(&cp_VBO, &cp_VAO, cp_count_vertices, cp_vertices);
-	draw_graph(plane, draw_cp, cp_VAO, cp_count_vertices);
-	delete_convex_polygon(cp_VBO, cp_VAO);
+	prepare_object(&cp_VBO, &cp_VAO, &cp_shader_id, cp_count_vertices,
+			cp_data);
+	free(cp_data);
+	prepare_object(&dots_VBO, &dots_VAO, &dots_shader_id, dots_count_vertices,
+			dots_data);
+	free(dots_data);
+	drawings[0] = draw_cp;
+	drawings[1] = draw_dots;
+	VAOs[0] = cp_VAO;
+	VAOs[1] = dots_VAO;
+	vcounts[0] = cp_count_vertices;
+	vcounts[1] = dots_count_vertices;
+	shader_ids[0] = cp_shader_id;
+	shader_ids[1] = dots_shader_id;
+	draw_graph(plane, drawings, VAOs, vcounts, shader_ids, 2);
+	delete_object(cp_VBO, cp_VAO, cp_shader_id);
+	delete_object(dots_VBO, dots_VAO, dots_shader_id);
 	delete_plane(plane);
 	
 	return 0;

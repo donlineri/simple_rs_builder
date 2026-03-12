@@ -38,6 +38,11 @@ static const float axis_vertices[] = {
 static float offset_x = 0.0f, offset_y = 0.0f, clip_x = 10.0f, clip_y = 10.0f;
 static float width_height_ratio = 1.0f;
 
+float get_clip()
+{
+	return clip_x;
+}
+
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
 	float width_d = width, height_d = height;
@@ -163,13 +168,6 @@ static int string_size(character *characters, const char *text)
 		result += (ch.advance >> 6);
 	}
 	return result;
-}
-
-static void shader_set_matrix(unsigned int shader_id, const char *locname, mat4 mat)
-{
-	unsigned int loc;
-	loc = glGetUniformLocation(shader_id, locname);
-	glUniformMatrix4fv(loc, 1, GL_FALSE, (GLfloat*) mat);
 }
 
 void draw_axis(unsigned int axes_VAO, unsigned int shader_id, float aclip_x,
@@ -385,14 +383,23 @@ void prepare_plane(space **plane)
 	prepare_text((*plane)->text_render_obj);
 }
 
-void draw_graph(space *plane,
-		void (*draw_something)(unsigned int, int, unsigned int),
-		unsigned int VAO, int count_vertices)
+void shader_set_pvmat(unsigned int shader_id, mat4 projection, mat4 view)
 {
+	shader_use(shader_id);
+	shader_set_matrix(shader_id, "projection", projection);
+	shader_set_matrix(shader_id, "view", view);
+}
+
+void draw_graph(space *plane,
+		void (**drawings)(unsigned int, int, unsigned int),
+		unsigned int *VAOs, int *vcounts, unsigned int *shader_ids,
+		int count_drawings)
+{
+	int i;
 	mat4 projection, view;
 	vec3 a;
 	float aclip_x, aclip_y;
-	printf("cp_count:%d\n", count_vertices);
+	printf("cp_count:%d\n", vcounts[0]);
 	while(!glfwWindowShouldClose(plane->window))
 	{
 		processInput(plane->window);
@@ -412,30 +419,28 @@ void draw_graph(space *plane,
 				-aclip_y+offset_y, aclip_y+offset_y, 0.0f, 1.0f);
 		*/
 		glmc_ortho(-aclip_x, aclip_x, -aclip_y, aclip_y, 0.0f, 1.0f, projection);
-		shader_use(plane->shader_id);
-		shader_set_matrix(plane->shader_id, "projection", projection);
 		glmc_mat4_identity(view);
 		a[0] = -offset_x;
 		a[1] = -offset_y;
 		a[2] = -1.0f;
 		glmc_translate(view, a);
-		shader_set_matrix(plane->shader_id, "view", view);
+		shader_set_pvmat(plane->shader_id, projection, view);
 		glBindVertexArray(plane->axes_VAO);
 		glLineWidth(2.0f);
 		draw_axis(plane->axes_VAO, plane->shader_id, aclip_x, aclip_y, 1);
 		draw_axis(plane->axes_VAO, plane->shader_id, aclip_x, aclip_y, 0);
 		glLineWidth(0.0f);
-		draw_something(VAO, count_vertices, plane->shader_id);
-		shader_use(plane->text_render_obj->shader_id);
-		shader_set_matrix(plane->text_render_obj->shader_id, "projection", projection);
-		shader_set_matrix(plane->text_render_obj->shader_id, "view", view);
+		for(i = 0; i < count_drawings; i++) {
+			shader_set_pvmat(shader_ids[i], projection, view);
+			drawings[i](VAOs[i], vcounts[i], shader_ids[i]);
+		}
+		shader_set_pvmat(plane->text_render_obj->shader_id, projection, view);
 		draw_numbering(plane->text_render_obj, aclip_x, aclip_y);
 
 		glfwSwapBuffers(plane->window);
 		glfwPollEvents();
 	}
 }
-
 
 void delete_plane(space *plane)
 {

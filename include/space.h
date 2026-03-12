@@ -25,9 +25,12 @@ typedef struct euclidean_space {
 void prepare_plane(space **plane);
 
 void draw_graph(space *plane,
-		void (*draw_something)(unsigned int, int, unsigned int),
-		unsigned int VAO, int count_vertices);
+		void (**drawings)(unsigned int, int, unsigned int),
+		unsigned int *VAOs, int *vcounts, unsigned int *shader_ids,
+		int count_drawings);
 
 void delete_plane(space *plane);
+
+float get_clip();
 
 #endif
