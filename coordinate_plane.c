@@ -1,4 +1,4 @@
-#include "space.h"
+#include "coordinate_plane.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -35,62 +35,51 @@ static const float axis_vertices[] = {
 
 //static Camera cam(glm::vec3(0.0f, 0.0f, 1.0f));
 
-static float offset_x = 0.0f, offset_y = 0.0f, clip_x = 10.0f, clip_y = 10.0f;
-static float width_height_ratio = 1.0f;
-
-float get_clip()
-{
-	return clip_x;
-}
-
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
-	float width_d = width, height_d = height;
-	width_height_ratio = width_d / height_d;
 	glViewport(0, 0, width, height);
 }
 
-void processInput(GLFWwindow *window)
+void coordplane_process_input(coordplane *plane)
 {
-	int key_up = glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS;
-	int key_down = glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS;
-	int is_zoom_inc =  key_up &&
+	int key_up, key_down, is_zoom_inc, is_zoom_dec;
+	GLFWwindow *window;
+	window = plane->window;
+	key_up = glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS;
+	key_down = glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS;
+	is_zoom_inc =  key_up &&
 		glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
-	int is_zoom_dec = key_down &&
+	is_zoom_dec = key_down &&
 		glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
-	if(is_zoom_inc) {
-		clip_y += 0.1f;
-		clip_x += 0.1f;
-	}
+	if(is_zoom_inc)
+		plane->clip += 0.1f;
 	else if(key_up)
-		offset_y += 0.1f;
+		plane->offset_y += 0.1f;
 	if(is_zoom_dec) {
-		clip_y -= 0.1f;
-		clip_x -= 0.1f;
-		if(clip_y <= 0.1f) {
-			clip_y = 0.1f;
-			clip_x = 0.1f;
-		}
+		plane->clip -= 0.1f;
+		if(plane->clip <= 0.1f)
+			plane->clip = 0.1f;
 	}
 	else if(key_down)
-		offset_y -= 0.1f;
+		plane->offset_y -= 0.1f;
 	if(glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-		offset_x += 0.1f;
+		plane->offset_x += 0.1f;
 	if(glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-		offset_x -= 0.1f;
+		plane->offset_x -= 0.1f;
 	if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, 1);
 }
 
 static void prepare_window(GLFWwindow **window_ptr)
 {
+	GLFWwindow *window;
 	glfwInit();
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
 
-	GLFWwindow* window = glfwCreateWindow(700, 700, "graph", NULL, NULL);
+	window = glfwCreateWindow(700, 700, "graph", NULL, NULL);
 	if(window == NULL) {
 		printf("Failed to create GLFW window\n");
 		glfwTerminate();
@@ -170,96 +159,74 @@ static int string_size(character *characters, const char *text)
 	return result;
 }
 
-void draw_axis(unsigned int axes_VAO, unsigned int shader_id, float aclip_x,
-		float aclip_y, int is_x)
+void get_aclip(coordplane *plane, float *aclip)
 {
-	mat4 model;
-	vec3 a;
-	glmc_mat4_identity(model);
-
-	if(is_x) {
-		a[0] = 1.0f*aclip_x;
-		a[1] = 0.1f*aclip_y;
-		a[2] = 1.0f;
-		glmc_scale(model, a);
-		a[0] = offset_x/aclip_x;
-		a[1] = 0.0f;
-		a[2] = 0.0f;
-		glmc_translate(model, a);
+	int width, height;
+	float width_height_ratio;
+	glfwGetWindowSize(plane->window, &width, &height);
+	width_height_ratio = (float) width / (float) height;
+	if(width_height_ratio < 1.0) {
+		aclip[0] = plane->clip*width_height_ratio;
+		aclip[1] = plane->clip;
 	}
 	else {
-		a[0] = 0.1f*aclip_x;
-		a[1] = 1.0f*aclip_y;
-		a[2] = 1.0f;
-		glmc_scale(model, a);
-		a[0] = 0.0f;
-		a[1] = offset_y/aclip_y;
-		a[2] = 0.0f;
-		glmc_translate(model, a);
-		a[0] = 0.0f;
-		a[1] = 0.0f;
-		a[2] = 1.0f;
-		glmc_rotate(model, glm_rad(90.0f), a);
+		aclip[0] = plane->clip;
+		aclip[1] = plane->clip/width_height_ratio;
 	}
-
-	shader_use(shader_id);
-	shader_set_matrix(shader_id, "model", model);
-
-	glDrawArrays(GL_LINES, 0, 20);
 }
 
-void draw_numbering(text_render_object *text_render_obj, float aclip_x,
-		float aclip_y)
+void coordplane_draw_numbering(coordplane *plane)
 {
 	int i, count_vertices = sizeof(axis_vertices)/sizeof(float);
-	float magic, pos;
+	float magic, pos, aclip[2];
 	char buf[50];
 	mat4 model;
 	vec3 a;
+	text_render_object *tro;
+	tro = plane->tro;
+
+	get_aclip(plane, aclip);
 	glmc_mat4_identity(model);
-	a[0] = 0.1f*aclip_x;
-	a[1] = 0.1f*aclip_y;
+	a[0] = 0.1f*aclip[0];
+	a[1] = 0.1f*aclip[1];
 	a[2] = 1.0f;
 	glmc_scale(model, a);
-	a[0] = offset_x/(0.1f*aclip_x);
+	a[0] = plane->offset_x/(0.1f*aclip[0]);
 	a[1] = 0.0f;
 	a[2] = 0.0f;
 	glmc_translate(model, a);
-	shader_use(text_render_obj->shader_id);
-	shader_set_matrix(text_render_obj->shader_id, "model", model);
+	shader_use(tro->shader_id);
+	shader_set_matrix(tro->shader_id, "model", model);
 
 	magic = -0.5f*0.01f;
+	a[0] = 0.5f;
+	a[1] = 0.8f;
+	a[2] = 0.2f;
 	for(i = 6*6; i < count_vertices; i += 2*6) {
 		pos = axis_vertices[i];
-		snprintf(buf, 50, "%.2f", offset_x+pos*aclip_x);
-		a[0] = 0.5f;
-		a[1] = 0.8f;
-		a[2] = 0.2f;
-		render_text(text_render_obj, buf,
-				10.0f*pos+magic*string_size(text_render_obj->characters, buf), -0.55,
-				0.01f, a);
+		snprintf(buf, 50, "%.2f", plane->offset_x+pos*aclip[0]);
+		render_text(tro, buf, 10.0f*pos+magic*string_size(tro->characters, buf),
+				-0.55, 0.01f, a);
 	}
 
 	glmc_mat4_identity(model);
-	a[0] = 0.1f*aclip_x;
-	a[1] = 0.1f*aclip_y;
+	a[0] = 0.1f*aclip[0];
+	a[1] = 0.1f*aclip[1];
 	a[2] = 1.0f;
 	glmc_scale(model, a);
 	a[0] = 0.0f;
-	a[1] = offset_y/(0.1f*aclip_y);
+	a[1] = plane->offset_y/(0.1f*aclip[1]);
 	a[2] = 0.0f;
 	glmc_translate(model, a);
-	shader_set_matrix(text_render_obj->shader_id, "model", model);
-	magic = -0.5f*text_render_obj->characters[48].size[1]*0.01f;
+	shader_set_matrix(tro->shader_id, "model", model);
+	magic = -0.5f*tro->characters[48].size[1]*0.01f;
+	a[0] = 0.5f;
+	a[1] = 0.8f;
+	a[2] = 0.2f;
 	for(i = 6*6; i < count_vertices; i += 2*6) {
 		pos = axis_vertices[i];
-		snprintf(buf, 50, "%.2f", offset_y+pos*aclip_y);
-		a[0] = 0.5f;
-		a[1] = 0.8f;
-		a[2] = 0.2f;
-		render_text(text_render_obj, buf, 0.35,
-				10.0f*pos+magic,
-				0.01f, a);
+		snprintf(buf, 50, "%.2f", plane->offset_y+pos*aclip[1]);
+		render_text(tro, buf, 0.35, 10.0f*pos+magic, 0.01f, a);
 	}
 }
 
@@ -372,86 +339,103 @@ void prepare_axes(unsigned int *axes_VBO, unsigned int *axes_VAO)
 	glBindVertexArray(0);
 }
 
-void prepare_plane(space **plane)
+void coordplane_create(coordplane **plane)
 {
-	*plane = (space *) malloc(sizeof(space));
+	*plane = malloc(sizeof(coordplane));
 	prepare_window(&(*plane)->window);
 	prepare_axes(&(*plane)->axes_VBO, &(*plane)->axes_VAO);
 	shader_create(&(*plane)->shader_id, "shader.vs", "shader.fs");
-	(*plane)->text_render_obj = (text_render_object *) malloc(
-			sizeof(text_render_object));
-	prepare_text((*plane)->text_render_obj);
+	(*plane)->tro = malloc(sizeof(text_render_object));
+	prepare_text((*plane)->tro);
+	(*plane)->offset_x = 0.0f;
+	(*plane)->offset_y = 0.0f;
+	(*plane)->clip = 10.0f;
 }
 
-void shader_set_pvmat(unsigned int shader_id, mat4 projection, mat4 view)
+void coordplane_fill_with_color(float r, float g, float b)
 {
-	shader_use(shader_id);
-	shader_set_matrix(shader_id, "projection", projection);
-	shader_set_matrix(shader_id, "view", view);
+	glClearColor(r, g, b, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
 }
 
-void draw_graph(space *plane,
-		void (**drawings)(unsigned int, int, unsigned int),
-		unsigned int *VAOs, int *vcounts, unsigned int *shader_ids,
-		int count_drawings)
+void coordplane_shader_set_up(coordplane *plane)
+{
+	float aclip[2];
+	mat4 projection, view, model;
+	vec3 a;
+
+	get_aclip(plane, aclip);
+	glmc_ortho(-aclip[0], aclip[0], -aclip[1], aclip[1], 0.0f, 1.0f, projection);
+	glmc_mat4_identity(view);
+	a[0] = -plane->offset_x;
+	a[1] = -plane->offset_y;
+	a[2] = -1.0f;
+	glmc_translate(view, a);
+	glmc_mat4_identity(model);
+
+	shader_use(plane->shader_id);
+	shader_set_matrix(plane->shader_id, "projection", projection);
+	shader_set_matrix(plane->shader_id, "view", view);
+	shader_set_matrix(plane->shader_id, "model", model);
+	shader_use(plane->tro->shader_id);
+	shader_set_matrix(plane->tro->shader_id, "projection", projection);
+	shader_set_matrix(plane->tro->shader_id, "view", view);
+}
+
+void coordplane_draw_axes(coordplane *plane)
+{
+	float save_line_width, aclip[2];
+	mat4 model1, model2;
+	vec3 a;
+	glGetFloatv(GL_LINE_WIDTH, &save_line_width);
+	glLineWidth(2.0f);
+	glBindVertexArray(plane->axes_VAO);
+	get_aclip(plane, aclip);
+	glmc_mat4_identity(model1);
+	glmc_mat4_identity(model2);
+	a[0] = 1.0f*aclip[0];
+	a[1] = 0.1f*aclip[1];
+	a[2] = 1.0f;
+	glmc_scale(model1, a);
+	a[0] = plane->offset_x/aclip[0];
+	a[1] = 0.0f;
+	a[2] = 0.0f;
+	glmc_translate(model1, a);
+	a[0] = 0.1f*aclip[0];
+	a[1] = 1.0f*aclip[1];
+	a[2] = 1.0f;
+	glmc_scale(model2, a);
+	a[0] = 0.0f;
+	a[1] = plane->offset_y/aclip[1];
+	a[2] = 0.0f;
+	glmc_translate(model2, a);
+	a[0] = 0.0f;
+	a[1] = 0.0f;
+	a[2] = 1.0f;
+	glmc_rotate(model2, glm_rad(90.0f), a);
+	shader_use(plane->shader_id);
+	shader_set_matrix(plane->shader_id, "model", model1);
+	glDrawArrays(GL_LINES, 0, 20);
+	shader_set_matrix(plane->shader_id, "model", model2);
+	glDrawArrays(GL_LINES, 0, 20);
+	glmc_mat4_identity(model1);
+	shader_set_matrix(plane->shader_id, "model", model1);
+	glLineWidth(save_line_width);
+}
+
+void coordplane_delete(coordplane *plane)
 {
 	int i;
-	mat4 projection, view;
-	vec3 a;
-	float aclip_x, aclip_y;
-	printf("cp_count:%d\n", vcounts[0]);
-	while(!glfwWindowShouldClose(plane->window))
-	{
-		processInput(plane->window);
-		glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-		if(width_height_ratio < 1.0) {
-			aclip_x = clip_x*width_height_ratio;
-			aclip_y = clip_y;
-		}
-		else {
-			aclip_x = clip_x;
-			aclip_y = clip_y/width_height_ratio;
-		}
-
-		/*
-		projection = glm::ortho(-aclip_x+offset_x, aclip_x+offset_x,
-				-aclip_y+offset_y, aclip_y+offset_y, 0.0f, 1.0f);
-		*/
-		glmc_ortho(-aclip_x, aclip_x, -aclip_y, aclip_y, 0.0f, 1.0f, projection);
-		glmc_mat4_identity(view);
-		a[0] = -offset_x;
-		a[1] = -offset_y;
-		a[2] = -1.0f;
-		glmc_translate(view, a);
-		shader_set_pvmat(plane->shader_id, projection, view);
-		glBindVertexArray(plane->axes_VAO);
-		glLineWidth(2.0f);
-		draw_axis(plane->axes_VAO, plane->shader_id, aclip_x, aclip_y, 1);
-		draw_axis(plane->axes_VAO, plane->shader_id, aclip_x, aclip_y, 0);
-		glLineWidth(0.0f);
-		for(i = 0; i < count_drawings; i++) {
-			shader_set_pvmat(shader_ids[i], projection, view);
-			drawings[i](VAOs[i], vcounts[i], shader_ids[i]);
-		}
-		shader_set_pvmat(plane->text_render_obj->shader_id, projection, view);
-		draw_numbering(plane->text_render_obj, aclip_x, aclip_y);
-
-		glfwSwapBuffers(plane->window);
-		glfwPollEvents();
-	}
-}
-
-void delete_plane(space *plane)
-{
 	glDeleteProgram(plane->shader_id);
-	glDeleteProgram(plane->text_render_obj->shader_id);
-	free(plane->text_render_obj->characters);
+	glDeleteProgram(plane->tro->shader_id);
+	for(i = 0; i < 128; i++)
+		glDeleteTextures(1, &plane->tro->characters[i].texture_id);
+	free(plane->tro->characters);
 	glDeleteVertexArrays(1, &plane->axes_VAO);
 	glDeleteBuffers(1, &plane->axes_VBO);
-	glDeleteVertexArrays(1, &plane->text_render_obj->VAO);
-	glDeleteBuffers(1, &plane->text_render_obj->VBO);
-	free(plane->text_render_obj);
+	glDeleteVertexArrays(1, &plane->tro->VAO);
+	glDeleteBuffers(1, &plane->tro->VBO);
+	free(plane->tro);
 	glfwTerminate();
 	free(plane);
 }

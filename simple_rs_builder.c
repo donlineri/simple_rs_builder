@@ -4,18 +4,17 @@
 #include <string.h>
 #include <unistd.h>
 #include <ctype.h>
-#include <glad/glad.h>
 #include <cglm/call.h>
-#include <setoper.h>
-#include <cdd.h>
+#include "glad/glad.h"
+#include "setoper.h"
+#include "cdd.h"
 #include "tinyexpr.h"
-#include "space.h"
+#include "coordinate_plane.h"
 #include "shader_s.h"
 
 #define ALMOSTZERO 0.00001
 
 enum {
-	max_pathname = 255,
 	max_length_line = 255,
 };
 
@@ -23,6 +22,12 @@ typedef struct sup_f_s {
 	te_expr *expr;
 	double phi1, phi2;
 } sup_f;
+
+typedef struct problem_s {
+	double **a, *x0, t, **phi;
+	int n;
+	sup_f c_u;
+} problem;
 
 void draw_cp(unsigned int VAO, int count_vertices, unsigned int shader_id)
 {
@@ -61,154 +66,83 @@ void swap_int(int *a, int *b)
 	*b = t;
 }
 
-void order_vertices(double **cp_vertices, double (**g)[1],
-		unsigned long rowsize, unsigned long colsize)
+void sort(int *index, double *value, int size)
 {
-  unsigned long i, j;
+	int i, j;
+	for(j = size; j > 1; j--)
+		for(i = 1; i < j; i++)
+			if(value[i-1] > value[i]) {
+				swap_double(&value[i-1], &value[i]);
+				swap_int(&index[i-1], &index[i]);
+			}
+}
+
+void fill_cp_vertices_in_correct_order(dd_MatrixPtr G, double *cp_vertices)
+{
+  int i, rowsize;
 	double centroidX = 0.0, centroidY = 0.0, *cp_angle_vertices;
 	int *cp_number_vertices;
+	rowsize = G->rowsize;
 	cp_angle_vertices = (double *) malloc(sizeof(double)*rowsize);
 	cp_number_vertices = (int *) malloc(sizeof(int)*rowsize);
-	*cp_vertices = (double *) malloc(sizeof(double)*(rowsize * 6));
 	for(i = 0; i < rowsize; i++) {
-		centroidX += g[i][1][0];
-		centroidY += g[i][2][0];
+		centroidX += dd_get_d(G->matrix[i][1]);
+		centroidY += dd_get_d(G->matrix[i][2]);
 	}
 	centroidX /= rowsize;
 	centroidY /= rowsize;
 	for(i = 0; i < rowsize; i++) {
 		cp_number_vertices[i] = i;
-		cp_angle_vertices[i] = atan2(g[i][2][0] - centroidY, g[i][1][0] - centroidX);
+		cp_angle_vertices[i] = atan2(dd_get_d(G->matrix[i][2]) - centroidY,
+				dd_get_d(G->matrix[i][1]) - centroidX);
 	}
-	for(j = rowsize; j > 1; j--)
-		for(i = 1; i < j; i++)
-			if(cp_angle_vertices[i-1] > cp_angle_vertices[i]) {
-				swap_double(&cp_angle_vertices[i-1], &cp_angle_vertices[i]);
-				swap_int(&cp_number_vertices[i-1], &cp_number_vertices[i]);
-			}
-	/*
-	int frontFaceMode;
-	//glFrontFace(GL_CW);
-	glGetIntegerv(GL_FRONT_FACE, &frontFaceMode);
-	if(frontFaceMode == GL_CW)
-		printf("glFrontFace is GL_CW (clockwise)\n");
-	else if(frontFaceMode == GL_CCW)
-		printf("glFrontFace is GL_CCW (counter clockwise)\n");
-	else
-		printf("glFrontFace has an unexpected value\n");
-		*/
+	sort(cp_number_vertices, cp_angle_vertices, rowsize);
   for(i = 0; i < rowsize; i++) {
-    for(j = 0; j < colsize; j++)
-      printf("%lf ", g[i][j][0]);
-		(*cp_vertices)[i*6] = g[cp_number_vertices[i]][1][0];
-		(*cp_vertices)[i*6+1] = g[cp_number_vertices[i]][2][0];
-		if(g[i][0][0] != 1.0) {
-			fprintf(stderr, "Error: extreme ray found\n");
-			exit(1);
-		}
-		(*cp_vertices)[i*6+2] = 0.0;
-		(*cp_vertices)[i*6+3] = 1.0;
-		(*cp_vertices)[i*6+4] = 0.5;
-		(*cp_vertices)[i*6+5] = 0.2;
-    printf("\n");
+		cp_vertices[i*6] = dd_get_d(G->matrix[cp_number_vertices[i]][1]);
+		cp_vertices[i*6+1] = dd_get_d(G->matrix[cp_number_vertices[i]][2]);
+		cp_vertices[i*6+2] = 0.0;
+		cp_vertices[i*6+3] = 1.0;
+		cp_vertices[i*6+4] = 0.5;
+		cp_vertices[i*6+5] = 0.2;
   }
 	free(cp_angle_vertices);
 	free(cp_number_vertices);
 }
 
-void open_result_file(FILE **result_file, char *name)
+void get_cp_vertices(double **omega, int omega_size, double **cp_vertices,
+		int *cp_count_vertices)
 {
-	time_t timep;
-	char *date;
-	timep = time(NULL);
-	date = asctime(localtime(&timep));
-	date[strlen(date)-1] = '\0';
-	sprintf(name, "/tmp/simple_rs_builder_%.100s.ine", date);
-	*result_file = fopen(name,  "w");
-	if(!*result_file) {
-		perror(name);
-		exit(1);
-	}
-}
-
-void error_file()
-{
-	fprintf(stderr, "Error: invalid file\n");
-	exit(1);
-}
-
-void generate_result_file(FILE *result_file, double **omega, int omega_size)
-{
-	int i;
-	char s[max_length_line];
-	fputs("H-representation\n", result_file);
-	fputs("begin\n", result_file);
-	snprintf(s, max_length_line, "%d 3 real\n", omega_size+4);
-	fputs(s, result_file);
-	for(i = 0; i < omega_size; i++) {
-		snprintf(s, max_length_line, "%lf %lf %lf\n", omega[i][0], omega[i][1], omega[i][2]);
-		fputs(s, result_file);
-	}
-	fputs("10000 1 0\n", result_file);
-	fputs("10000 -1 0\n", result_file);
-	fputs("10000 0 1\n", result_file);
-	fputs("10000 0 -1\n", result_file);
-	fputs("end\n", result_file);
-}
-
-void get_file(FILE **cddfile, char *cddfile_name, double **omega, int omega_size)
-{
-	FILE *t;
-	open_result_file(&t, cddfile_name);
-	generate_result_file(t, omega, omega_size);
-	fclose(t);
-	*cddfile = fopen(cddfile_name, "r");
-	if(!*cddfile) {
-		perror(cddfile_name);
-		exit(1);
-	}
-}
-
-void get_cp_vertices(FILE *reading, double **cp_vertices, int *cp_count_vertices)
-{
+	int i, j;
   dd_ErrorType error=dd_NoError;
   dd_MatrixPtr M, G;
 
   dd_PolyhedraPtr poly;
+	M = dd_CreateMatrix(omega_size, 3);
+  M->representation = dd_Inequality;
+	for(i = 0; i < omega_size; i++)
+		for(j = 0; j < 3; j++)
+			dd_set_d(M->matrix[i][j], omega[i][j]);
 
-  dd_set_global_constants(); /* First, this must be called once to use cddlib. */
-
-/* Input an LP using the cdd library  */
-  M = dd_PolyFile2Matrix(reading, &error);
-  if (error!=dd_NoError) goto _L99;
-  //dd_WriteMatrix(stdout, M);
-/* Generate all vertices of the feasible reagion */
-  poly = dd_DDMatrix2Poly(M, &error);
-  G = dd_CopyGenerators(poly);
-  //printf("rowsize: %ld\n", G->rowsize);
-	order_vertices(cp_vertices, G->matrix, G->rowsize, G->colsize);
+	poly = dd_DDMatrix2Poly(M, &error);
+	if(error != dd_NoError) {
+  	dd_WriteErrorMessages(stderr, error);
+		exit(1);
+	}
+	G = dd_CopyGenerators(poly);
+	*cp_vertices = malloc(sizeof(double)*(G->rowsize * 6));
 	*cp_count_vertices = G->rowsize;
-  printf("\nGenerators (All the vertices of the feasible region if bounded.)\n");
-  dd_WriteMatrix(stdout, G);
+	fill_cp_vertices_in_correct_order(G, *cp_vertices);
 
-  /* Free allocated spaces. */
-  dd_FreeMatrix(G);
   dd_FreePolyhedra(poly);
-
-/* Free allocated spaces. */
   dd_FreeMatrix(M);
-_L99:;
-  fclose(reading);
-  if (error!=dd_NoError) dd_WriteErrorMessages(stdout, error);
-  dd_free_global_constants();  /* At the end, this should be called. */
+  dd_FreeMatrix(G);
 }
 
-void prepare_object(unsigned int *VBO, unsigned int *VAO,
-		unsigned int *shader_id, int count_vertices, double *vertices)
+void prepare_object(unsigned int *VBO, unsigned int *VAO, int count_vertices,
+		double *vertices)
 {
 	glGenVertexArrays(1, VAO);
 	glGenBuffers(1, VBO);
-	shader_create(shader_id, "shader.vs", "shader.fs");
 	glBindVertexArray(*VAO);
 	glBindBuffer(GL_ARRAY_BUFFER, *VBO);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(double)*(count_vertices)*6,
@@ -225,9 +159,8 @@ void prepare_object(unsigned int *VBO, unsigned int *VAO,
 	glBindVertexArray(0);
 }
 
-void delete_object(unsigned int VBO, unsigned int VAO, unsigned int shader_id)
+void delete_object(unsigned int VBO, unsigned int VAO)
 {
-	glDeleteProgram(shader_id);
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBO);
 }
@@ -522,22 +455,14 @@ void calc_c_j(double *c, double **a, double *x0, double t, int n, double **phi,
 	freemat(a_star, 2);
 }
 
-void get_omega(double ***omega, int *omega_size)
+void get_omega(problem *p, double ***omega, int *omega_size)
 {
 	int i, n;
-	double **a, *x0, t, **phi, *c;
-	sup_f c_u;
-	parse_input(&a, &x0, &t, &n, &c_u);
+	double *c;
+	n = p->n;
 	//print_input(&a, &x0, &t, &n, &c_u);
-	phi = (double **) malloc(sizeof(double *) * n);
-	for(i = 0; i < n ; i++)
-		phi[i] = (double *) malloc(sizeof(double)*2);
-	for(i = 0; i < n; i++) {
-		phi[i][0] = cos((2*M_PI/n)*(i+1));
-		phi[i][1] = sin((2*M_PI/n)*(i+1));
-	}
 	c = (double *) malloc(sizeof(double) * n);
-	calc_c_j(c, a, x0, t, n, phi, &c_u);
+	calc_c_j(c, p->a, p->x0, p->t, n, p->phi, &p->c_u);
 	//printf("VECTOR c\n");
 	//printvec(c, n);
 	*omega = (double **) malloc(sizeof(double *) * n);
@@ -546,18 +471,14 @@ void get_omega(double ***omega, int *omega_size)
 	*omega_size = n;
 	for(i = 0; i < n; i++) {
 		(*omega)[i][0] = c[i];
-		(*omega)[i][1] = -phi[i][1];
-		(*omega)[i][2] = -phi[i][0];
+		(*omega)[i][1] = -p->phi[i][1];
+		(*omega)[i][2] = -p->phi[i][0];
 	}
-	freemat(phi, n);
-	freemat(a, 2);
-	free(x0);
 	free(c);
-	te_free(c_u.expr);
 }
 
 void get_dots_vertices(double *cp_v, int cp_v_count, double **dots_v,
-		int *dots_v_count)
+		int *dots_v_count, float clip)
 {
 	int i, j, *cp_num_v, max_count, is_checked;
 	float size;
@@ -568,12 +489,7 @@ void get_dots_vertices(double *cp_v, int cp_v_count, double **dots_v,
 		cp_dist_v[i] = cp_v[i*6]*cp_v[i*6] + cp_v[i*6+1]*cp_v[i*6+1];
 		cp_num_v[i] = i;
 	}
-	for(j = cp_v_count; j > 1; j--)
-		for(i = 1; i < j; i++)
-			if(cp_dist_v[i-1] > cp_dist_v[i]) {
-				swap_double(&cp_dist_v[i-1], &cp_dist_v[i]);
-				swap_int(&cp_num_v[i-1], &cp_num_v[i]);
-			}
+	sort(cp_num_v, cp_dist_v, cp_v_count);
 	max_count = 0;
 	is_checked = 0;
 	for(i = cp_v_count - 1; i > 0; i--)
@@ -585,19 +501,16 @@ void get_dots_vertices(double *cp_v, int cp_v_count, double **dots_v,
 		}
 	if(!is_checked && (fabs(cp_dist_v[1] - cp_dist_v[0]) < ALMOSTZERO))
 		max_count++;
-	/*
-	for(i = 0; i < cp_v_count; i++)
-		printf("dist: %lf\n", cp_dist_v[i]);
-	printf("max_count: %d\n", max_count);
-	*/
-	size = get_clip()/250;
-	/*
-	*dots_v = malloc(sizeof(double) * (cp_v_count*6*4));
-	*dots_v_count = 4*cp_v_count;
-	*/
-	*dots_v = malloc(sizeof(double) * (max_count*6*4));
-	*dots_v_count = 4*max_count;
-	/*
+	for(j = 0; j < max_count; j++) {
+		i = cp_num_v[cp_v_count - 1 - j];
+		printf("extreme dot (x,y) = (%lf,%lf)\n", cp_v[i*6], cp_v[i*6+1]);
+	}
+	size = clip/250;
+	/* 
+	 * If you want to select all vertices of convex polygon, uncomment this code
+	 * and comment out code below
+	dots_v = malloc(sizeof(double) * (cp_v_count*6*4));
+	dots_v_count = 4*cp_v_count;
 	for(i = 0; i < cp_v_count; i++) {
 		(*dots_v)[i*6*4] = cp_v[i*6] + size;
 		(*dots_v)[i*6*4+1] = cp_v[i*6+1] - size;
@@ -628,6 +541,8 @@ void get_dots_vertices(double *cp_v, int cp_v_count, double **dots_v,
 		(*dots_v)[i*6*4+23] = .839f;
 	}
 	*/
+	*dots_v = malloc(sizeof(double) * (max_count*6*4));
+	*dots_v_count = 4*max_count;
 	for(j = 0; j < max_count; j++) {
 		i = cp_num_v[cp_v_count - 1 - j];
 		(*dots_v)[j*6*4] = cp_v[i*6] + size;
@@ -662,45 +577,116 @@ void get_dots_vertices(double *cp_v, int cp_v_count, double **dots_v,
 	free(cp_num_v);
 }
 
+void get_direction(double ***phi, int n)
+{
+	int i;
+	*phi = (double **) malloc(sizeof(double *) * n);
+	for(i = 0; i < n ; i++)
+		(*phi)[i] = (double *) malloc(sizeof(double)*2);
+	for(i = 0; i < n; i++) {
+		(*phi)[i][0] = cos((2*M_PI/n)*(i+1));
+		(*phi)[i][1] = sin((2*M_PI/n)*(i+1));
+	}
+}
+
+void deinit_problem(problem *p)
+{
+	freemat(p->phi, p->n);
+	freemat(p->a, 2);
+	free(p->x0);
+	te_free(p->c_u.expr);
+}
+
+void process_input(GLFWwindow *window, int *is_animation)
+{
+	if(glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
+		*is_animation = 1;
+}
+
 int main()
 {
-	space *plane;
-	unsigned int cp_VBO, cp_VAO, cp_shader_id, dots_VBO, dots_VAO,
-							 dots_shader_id, VAOs[2], shader_ids[2];
-	int omega_size, cp_count_vertices, dots_count_vertices, vcounts[2];
-	double *cp_data, *dots_data, **omega;
-	char cddfile_name[max_pathname];
-	FILE *cddfile;
-	void (*drawings[2])(unsigned int, int, unsigned int);
+	coordplane *plane;
+	unsigned int cp_VBO, cp_VAO, dots_VBO, dots_VAO;
+	int omega_size, cp_count_vertices, dots_count_vertices, is_animation;
+	double *cp_data, *dots_data, **omega, prev_t, cur_t;
+	problem p;
 
-	get_omega(&omega, &omega_size);
-	get_file(&cddfile, cddfile_name, omega, omega_size);
+	parse_input(&p.a, &p.x0, &p.t, &p.n, &p.c_u);
+	coordplane_create(&plane);
+	get_direction(&p.phi, p.n);
+  dd_set_global_constants(); /* First, this must be called once to use cddlib. */
+	is_animation = 0;
+
+	get_omega(&p, &omega, &omega_size);
+	get_cp_vertices(omega, omega_size, &cp_data, &cp_count_vertices);
 	freemat(omega, omega_size);
-	get_cp_vertices(cddfile, &cp_data, &cp_count_vertices);
 	get_dots_vertices(cp_data, cp_count_vertices, &dots_data,
-			&dots_count_vertices);
-#ifndef DONTDELETE
-	unlink(cddfile_name);
-#endif
-	prepare_plane(&plane);
-	prepare_object(&cp_VBO, &cp_VAO, &cp_shader_id, cp_count_vertices,
-			cp_data);
+			&dots_count_vertices, plane->clip);
+	prepare_object(&cp_VBO, &cp_VAO, cp_count_vertices, cp_data);
 	free(cp_data);
-	prepare_object(&dots_VBO, &dots_VAO, &dots_shader_id, dots_count_vertices,
-			dots_data);
+	prepare_object(&dots_VBO, &dots_VAO, dots_count_vertices, dots_data);
 	free(dots_data);
-	drawings[0] = draw_cp;
-	drawings[1] = draw_dots;
-	VAOs[0] = cp_VAO;
-	VAOs[1] = dots_VAO;
-	vcounts[0] = cp_count_vertices;
-	vcounts[1] = dots_count_vertices;
-	shader_ids[0] = cp_shader_id;
-	shader_ids[1] = dots_shader_id;
-	draw_graph(plane, drawings, VAOs, vcounts, shader_ids, 2);
-	delete_object(cp_VBO, cp_VAO, cp_shader_id);
-	delete_object(dots_VBO, dots_VAO, dots_shader_id);
-	delete_plane(plane);
+
+	while(!glfwWindowShouldClose(plane->window))
+	{
+		if(is_animation) {
+			p.t += 1.0f;
+			printf("t: %f\n", p.t);
+			printf("cp_count_vertices: %d\n", cp_count_vertices);
+
+			prev_t = glfwGetTime();
+			delete_object(cp_VBO, cp_VAO);
+			delete_object(dots_VBO, dots_VAO);
+			cur_t = glfwGetTime();
+			printf("DEBUG: delete_object time: %lf\n", cur_t-prev_t);
+
+			prev_t = glfwGetTime();
+			get_omega(&p, &omega, &omega_size);
+			cur_t = glfwGetTime();
+			printf("DEBUG: get_omega time: %lf\n", cur_t-prev_t);
+
+			prev_t = glfwGetTime();
+			get_cp_vertices(omega, omega_size, &cp_data, &cp_count_vertices);
+			cur_t = glfwGetTime();
+			printf("DEBUG: get_cp_vertices time: %lf\n", cur_t-prev_t);
+
+			prev_t = glfwGetTime();
+			freemat(omega, omega_size);
+			cur_t = glfwGetTime();
+			printf("DEBUG: freemat time: %lf\n", cur_t-prev_t);
+
+			prev_t = glfwGetTime();
+			get_dots_vertices(cp_data, cp_count_vertices, &dots_data,
+					&dots_count_vertices, plane->clip);
+			cur_t = glfwGetTime();
+			printf("DEBUG: get_dots_vertices time: %lf\n", cur_t-prev_t);
+
+			prev_t = glfwGetTime();
+			prepare_object(&cp_VBO, &cp_VAO, cp_count_vertices, cp_data);
+			free(cp_data);
+			prepare_object(&dots_VBO, &dots_VAO, dots_count_vertices, dots_data);
+			free(dots_data);
+			cur_t = glfwGetTime();
+			printf("DEBUG: prepare_object time: %lf\n", cur_t-prev_t);
+
+			is_animation = 0;
+		}
+		coordplane_process_input(plane);
+		process_input(plane->window, &is_animation);
+		coordplane_fill_with_color(0.2f, 0.3f, 0.3f);
+		coordplane_shader_set_up(plane);
+		coordplane_draw_axes(plane);
+		draw_cp(cp_VAO, cp_count_vertices, plane->shader_id);
+		draw_dots(dots_VAO, dots_count_vertices, plane->shader_id);
+		coordplane_draw_numbering(plane);
+		glfwSwapBuffers(plane->window);
+		glfwPollEvents();
+	}
+	delete_object(cp_VBO, cp_VAO);
+	delete_object(dots_VBO, dots_VAO);
+	coordplane_delete(plane);
+	deinit_problem(&p);
+  dd_free_global_constants();  /* At the end, this should be called. */
 	
 	return 0;
 }

@@ -16,21 +16,23 @@ typedef struct text_render_object_s {
 	character *characters;
 } text_render_object;
 
-typedef struct euclidean_space {
+typedef struct coordinate_plane {
 	GLFWwindow *window;
 	unsigned int axes_VBO, axes_VAO, shader_id;
-	text_render_object *text_render_obj;
-} space;
+	text_render_object *tro;
+	float clip, offset_x, offset_y;
+} coordplane;
 
-void prepare_plane(space **plane);
-
-void draw_graph(space *plane,
-		void (**drawings)(unsigned int, int, unsigned int),
-		unsigned int *VAOs, int *vcounts, unsigned int *shader_ids,
-		int count_drawings);
-
-void delete_plane(space *plane);
-
-float get_clip();
+void coordplane_create(coordplane **plane);
+void coordplane_process_input(coordplane *plane);
+void coordplane_fill_with_color(float r, float g, float b);
+void coordplane_shader_set_up(coordplane *plane);
+void coordplane_draw_axes(coordplane *plane);
+void coordplane_draw_numbering(coordplane *plane);
+void coordplane_delete(coordplane *plane);
+/*
+ void coordplane_get_projmat(coordplane *plane, mat4 *projection);
+ void coordplane_get_viewmat(coordplane *plane, mat4 *view);
+*/
 
 #endif
