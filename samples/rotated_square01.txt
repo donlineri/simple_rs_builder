@@ -1,6 +1,8 @@
 Matrix A
-0 0
-0 0
+0
+0
+0
+0
 
 Vector x0
 0

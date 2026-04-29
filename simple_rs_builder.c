@@ -23,17 +23,21 @@ typedef struct sup_f_s {
 	double phi1, phi2;
 } sup_f;
 
+typedef struct func1_s {
+	te_expr *expr;
+	double t;
+} func1;
+
 typedef struct problem_s {
-	double **a, *x0, t, **phi;
+	func1 **a;
+	double *x0, t, **phi;
 	int n;
 	sup_f c_u;
 } problem;
 
 void draw_cp(unsigned int VAO, int count_vertices, unsigned int shader_id)
 {
-	mat4 model;
-	glmc_mat4_identity(model);
-	shader_set_matrix(shader_id, "model", model);
+	shader_use(shader_id);
 	glBindVertexArray(VAO);
 	glDrawArrays(GL_TRIANGLE_FAN, 0, count_vertices);
 }
@@ -41,9 +45,7 @@ void draw_cp(unsigned int VAO, int count_vertices, unsigned int shader_id)
 void draw_dots(unsigned int VAO, int count_vertices, unsigned int shader_id)
 {
 	int i;
-	mat4 model;
-	glmc_mat4_identity(model);
-	shader_set_matrix(shader_id, "model", model);
+	shader_use(shader_id);
 	glLineWidth(2.0f);
 	glBindVertexArray(VAO);
 	for(i = 0; i < count_vertices / 4; i++)
@@ -201,24 +203,51 @@ char *get_stroka(char *buf)
 	return s;
 }
 
-void parse_input(double ***a, double **x0, double *t, int *n, sup_f *c_u)
+te_expr *get_func(char *s, te_variable *vars, int te_vars_count)
+{
+	int err;
+	char input[max_length_line];
+	te_expr *expr;
+	while(isspace(*s))
+		s++;
+	expr = te_compile(s, vars, te_vars_count, &err);
+	while(!expr) {
+		if(err != 1)
+			fprintf(stderr, "Parse error at %d\n", err);
+		s = get_stroka(input);
+		expr = te_compile(s, vars, te_vars_count, &err);
+	}
+	return expr;
+}
+
+void parse_input(func1 ***a, double **x0, double *t, int *n, sup_f *c_u)
 {
 	const int dim = 2;
-	int i, j, err, pos, te_vars_count;
+	const int num_count = 4;
+	int i, j, pos, te_vars_count_c_u, te_vars_count_aij;
 	char input[max_length_line], *s, *endptr;
-	double data[8];
-	te_variable vars[] = {{"max", (void*) max,
+	double data[num_count];
+	te_variable vars_c_u[] = {{"max", (void*) max,
 		TE_FUNCTION2}, {"phi1", &c_u->phi1}, {"phi2", &c_u->phi2}};
-	te_vars_count = 3;
-	(*a) = (double **) malloc(sizeof(double *) * dim);
-	(*a)[0] = (double *) malloc(sizeof(double) * dim);
-	(*a)[1] = (double *) malloc(sizeof(double) * dim);
-	*x0 = (double *) malloc(sizeof(double)*dim);
+	(*a) = malloc(sizeof(func1 *) * dim);
+	(*a)[0] = malloc(sizeof(func1) * dim);
+	(*a)[1] = malloc(sizeof(func1) * dim);
+	te_variable vars_aij[2][2][2] = {{{{"t", &(*a)[0][0].t}},
+		{{"t", &(*a)[0][1].t}}}, {{{"t", &(*a)[1][0].t}}, {{"t", &(*a)[1][1].t}}}};
+	te_vars_count_c_u = 3;
+	te_vars_count_aij = 1;
+	for(i = 0; i < dim; i++)
+		for(j = 0; j < dim; j++) {
+			s = get_stroka(input);
+			(*a)[i][j].expr = get_func(s, vars_aij[i][j], te_vars_count_aij);
+		}
+	*x0 = malloc(sizeof(double)*dim);
 	pos = 0;
 	if(isatty(0))
-		printf("Enter A (4), x0 (2), T (1), N (1), c_u (function(phi1,phi2))\n");
+		printf("Enter A (4 function(t)), x0 (2), T (1), N (1), c_u"
+				"(function(phi1,phi2))\n");
 	s = get_stroka(input);
-	while(pos < 8) {
+	while(pos < num_count) {
 		data[pos] = strtod(s, &endptr);
 		if(endptr == s) {
 			s = get_stroka(input);
@@ -227,23 +256,18 @@ void parse_input(double ***a, double **x0, double *t, int *n, sup_f *c_u)
       s = endptr;
 		}
 	}
-	while(isspace(*s))
-		s++;
-	c_u->expr = te_compile(s, vars, te_vars_count, &err);
-	while(!c_u->expr) {
-		if(err != 1)
-			fprintf(stderr, "Parse error at %d\n", err);
-		s = get_stroka(input);
-		c_u->expr = te_compile(s, vars, te_vars_count, &err);
-	}
+
+	c_u->expr = get_func(s, vars_c_u, te_vars_count_c_u);
 	
+	/*
 	for(i = 0; i < dim; i++)
 		for(j = 0; j < dim; j++)
 			(*a)[i][j] = data[i*dim + j];
-	(*x0)[0] = data[4];
-	(*x0)[1] = data[5];
-	*t = data[6];
-	*n = (int) data[7];
+			*/
+	(*x0)[0] = data[0];
+	(*x0)[1] = data[1];
+	*t = data[2];
+	*n = (int) data[3];
 }
 
 void freemat(double **m, int size)
@@ -254,10 +278,15 @@ void freemat(double **m, int size)
   free(m);
 }
 
-void print_input(double ***a, double **x0, double *t, int *n, sup_f *c_u)
+void print_input(func1 ***a, double **x0, double *t, int *n, sup_f *c_u)
 {
+	int i, j;
 	printf("MATRIX A\n");
-	printmat(*a, 2);
+	for(i = 0; i < 2; i++)
+		for(j = 0; j < 2; j++) {
+			(*a)[i][j].t = 1.0;
+			printf("a[%d][%d](%lf) = %lf\n", i, j, (*a)[i][j].t, te_eval((*a)[i][j].expr));
+		}
 	(*c_u).phi1 = 1;
 	(*c_u).phi2 = 1;
 	printf("f(%lf,%lf) = %lf\n", (*c_u).phi1, (*c_u).phi2, te_eval((*c_u).expr));
@@ -457,12 +486,22 @@ void calc_c_j(double *c, double **a, double *x0, double t, int n, double **phi,
 
 void get_omega(problem *p, double ***omega, int *omega_size)
 {
-	int i, n;
+	int i, j, n;
 	double *c;
+	double **temp_a;
+	temp_a = malloc(sizeof(double *) * 2);
+	temp_a[0] = malloc(sizeof(double) * 2);
+	temp_a[1] = malloc(sizeof(double) * 2);
+	for(i = 0; i < 2; i++)
+		for(j = 0; j < 2; j++) {
+			p->a[i][j].t = 1.0;
+			temp_a[i][j] = te_eval(p->a[i][j].expr);
+		}
 	n = p->n;
 	//print_input(&a, &x0, &t, &n, &c_u);
 	c = (double *) malloc(sizeof(double) * n);
-	calc_c_j(c, p->a, p->x0, p->t, n, p->phi, &p->c_u);
+	calc_c_j(c, temp_a, p->x0, p->t, n, p->phi, &p->c_u);
+	freemat(temp_a, 2);
 	//printf("VECTOR c\n");
 	//printvec(c, n);
 	*omega = (double **) malloc(sizeof(double *) * n);
@@ -591,8 +630,14 @@ void get_direction(double ***phi, int n)
 
 void deinit_problem(problem *p)
 {
+	int i, j;
 	freemat(p->phi, p->n);
-	freemat(p->a, 2);
+	for(i = 0; i < 2; i++) {
+		for(j = 0; j < 2; j++)
+			te_free(p->a[i][j].expr);
+		free(p->a[i]);
+	}
+	free(p->a);
 	free(p->x0);
 	te_free(p->c_u.expr);
 }
@@ -612,6 +657,7 @@ int main()
 	problem p;
 
 	parse_input(&p.a, &p.x0, &p.t, &p.n, &p.c_u);
+	//print_input(&p.a, &p.x0, &p.t, &p.n, &p.c_u);
 	coordplane_create(&plane);
 	get_direction(&p.phi, p.n);
   dd_set_global_constants(); /* First, this must be called once to use cddlib. */
