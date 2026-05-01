@@ -233,13 +233,13 @@ void parse_input(func1 ***a, double **x0, double *t, int *n, sup_f *c_u)
 	(*a)[0] = malloc(sizeof(func1) * dim);
 	(*a)[1] = malloc(sizeof(func1) * dim);
 	te_variable vars_aij[2][2][2] = {{{{"t", &(*a)[0][0].t}},
-		{{"t", &(*a)[0][1].t}}}, {{{"t", &(*a)[1][0].t}}, {{"t", &(*a)[1][1].t}}}};
+		{{"t", &(*a)[1][0].t}}}, {{{"t", &(*a)[0][1].t}}, {{"t", &(*a)[1][1].t}}}};
 	te_vars_count_c_u = 3;
 	te_vars_count_aij = 1;
 	for(i = 0; i < dim; i++)
 		for(j = 0; j < dim; j++) {
 			s = get_stroka(input);
-			(*a)[i][j].expr = get_func(s, vars_aij[i][j], te_vars_count_aij);
+			(*a)[j][i].expr = get_func(s, vars_aij[i][j], te_vars_count_aij);
 		}
 	*x0 = malloc(sizeof(double)*dim);
 	pos = 0;
@@ -299,45 +299,6 @@ void print_input(func1 ***a, double **x0, double *t, int *n, sup_f *c_u)
 	printf("N = %d\n", *n);
 }
 
-void copy(double **dest, int n, double **src)
-{
-  int i, j;
-  for(i = 0; i < n; i++)
-    for(j = 0; j < n; j++)
-      dest[i][j] = src[i][j];
-}
-
-void multiply(double **a, double **b, int n, double ***r)
-{
-  int i, j, k;
-  double s = 0.0;
-  double **c;
-	c = (double **) malloc(sizeof(double *)*n);
-  for(i = 0; i < n; i++)
-    c[i] = (double *) malloc(sizeof(double)*n);
-  for(i = 0; i < n; i++) {
-    for(j = 0; j < n; j++) {
-      s = 0.0;
-      for(k = 0; k < n; k++)
-        s += a[i][k]*b[k][j];
-      c[i][j] = s;
-    }
-  }
-  *r = c;
-}
-
-void multiply_vec(double **a, double *b, int n, double **r)
-{
-  double *res = (double *) malloc(sizeof(double)*n);
-  int i, j;
-  for(i = 0; i < n; i++) {
-    res[i] = 0.0;
-    for(j = 0; j < n; j++)
-        res[i] += a[i][j] * b[j];
-  }
-  *r = res;
-}
-
 double dot_product(double *x1, double *x2, int size)
 {
   int i;
@@ -347,163 +308,95 @@ double dot_product(double *x1, double *x2, int size)
   return s;
 }
 
-long factorial(long n)
+double dp_t(func1 *a_t_i, double t, double psi1, double psi2)
 {
-  if(n == 0)
-    return 1;
-  return n*factorial(n-1);
+	a_t_i[0].t = t;
+	a_t_i[1].t = t;
+	return te_eval(a_t_i[0].expr)*psi1 + te_eval(a_t_i[1].expr)*psi2;
 }
 
-void mult_m_s(double **m, int size, double s)
+void runge_kutta(problem *p, int j, double *x, int xsize, double *y1,
+		double *y2)
 {
-	int i, j;
-	for(i = 0; i < size; i++)
-		for(j = 0; j < size; j++)
-			m[i][j] = s*m[i][j];
+  int i;
+  double phi[4], psi[4], h = x[1]-x[0], t = p->t;
+  y1[0] = p->phi[j][0];
+  y2[0] = p->phi[j][1];
+  for(i = 1; i < xsize; i++) {
+    phi[0] = h*dp_t(p->a[0], t - x[i-1], y1[i-1], y2[i-1]);
+    psi[0] = h*dp_t(p->a[1], t - x[i-1], y1[i-1], y2[i-1]);
+    phi[1] = h*dp_t(p->a[0], t - (x[i-1]+h/2.0), y1[i-1]+phi[0]/2.0,
+				y2[i-1]+psi[0]/2.0);
+    psi[1] = h*dp_t(p->a[1], t - (x[i-1]+h/2.0), y1[i-1]+phi[0]/2.0,
+				y2[i-1]+psi[0]/2.0);
+    phi[2] = h*dp_t(p->a[0], t - (x[i-1]+h/2.0), y1[i-1]+phi[1]/2.0,
+				y2[i-1]+psi[1]/2.0);
+    psi[2] = h*dp_t(p->a[1], t - (x[i-1]+h/2.0), y1[i-1]+phi[1]/2.0,
+				y2[i-1]+psi[1]/2.0);
+    phi[3] = h*dp_t(p->a[0], t - (x[i-1]+h), y1[i-1]+phi[2], y2[i-1]+psi[2]);
+    psi[3] = h*dp_t(p->a[1], t - (x[i-1]+h), y1[i-1]+phi[2], y2[i-1]+psi[2]);
+    y1[i] = y1[i-1] + 1.0/6.0*(phi[0] + 2*phi[1] + 2*phi[2] + phi[3]);
+    y2[i] = y2[i-1] + 1.0/6.0*(psi[0] + 2*psi[1] + 2*psi[2] + psi[3]);
+  }
 }
 
-void add(double **a, double **b, int n)
+void integration_by_rectangle_h(problem *p, int j, double h,
+		double *integral, double *psi_t)
 {
-  int i, j;
-  for(i = 0; i < n; i++)
-    for(j = 0; j < n; j++)
-      a[i][j] += b[i][j];
-}
-
-double **expm(double **mat, int size)
-{
-	int i, j;
-	long k;
-	double **res, **a_new, **a_prev;
-	res = (double **) malloc(sizeof(double *)*size);
-	a_prev = (double **) malloc(sizeof(double *)*size);
-	for(i = 0; i < size; i++) {
-		res[i] = (double *) malloc(sizeof(double)*size);
-		a_prev[i] = (double *) malloc(sizeof(double)*size);
-	}
-	for(i = 0; i < size; i++)
-		for(j = 0; j < size; j++)
-			if(i == j)
-				res[i][j] = 1;
-			else
-				res[i][j] = 0;
-
-	for(k = 1; k < 20; k++) {
-		copy(a_prev, size, mat);
-		for(i = 1; i < k; i++) {
-			multiply(a_prev, mat, size, &a_new);
-			freemat(a_prev, size);
-			a_prev = a_new;
-		}
-		mult_m_s(a_prev, size, 1.0/factorial(k));
-		add(res, a_prev, size);
-	}
-	freemat(a_prev, size);
-	return res;
-}
-
-double integrand(double **a, double t, double *phi, sup_f *c_u, double s)
-{
-	double **alfa, **exp_alfa, *beta;
-	alfa = (double **) malloc(sizeof(double *) * 2);
-	alfa[0] = (double *) malloc(sizeof(double) * 2);
-	alfa[1] = (double *) malloc(sizeof(double) * 2);
-	copy(alfa, 2, a);
-	mult_m_s(alfa, 2, t-s);
-	exp_alfa = expm(alfa, 2);
-	freemat(alfa, 2);
-	multiply_vec(exp_alfa, phi, 2, &beta);
-	freemat(exp_alfa, 2);
-	c_u->phi1 = beta[0];
-	c_u->phi2 = beta[1];
-	free(beta);
-	return te_eval(c_u->expr);
-}
-
-double integration_by_rectangle_h(double **mat_a, double t, double *phi,
-		sup_f *c_u, double a, double b, double h)
-{
-  int node_count, i;
-  double sum = 0.0;
+  int node_count, i, psi_node_count, a = 0, b = p->t;
+  double sum = 0.0, *t, *psi1, *psi2, psi_h;
+	sup_f *c_u = &p->c_u;
 	node_count = (int)trunc((b-a)/h)+1;
-	h = (b-a)/node_count;
+	h = (b-a)/(double)node_count;
 	node_count++;
-	for(i = 1; i < node_count; i++)
-		sum += integrand(mat_a, t, phi, c_u, (a+h*i + a+h*(i-1))/2.0);
-	return h*sum;
+	psi_node_count = node_count*2 - 1;
+	psi_h = (b-a) / (double) (psi_node_count-1);
+	t = malloc(sizeof(double)*psi_node_count);
+	psi1 = malloc(sizeof(double)*psi_node_count);
+	psi2 = malloc(sizeof(double)*psi_node_count);
+	for(i = 0; i < psi_node_count; i++)
+		t[i] = a + i*psi_h;
+	runge_kutta(p, j, t, psi_node_count, psi1, psi2);
+	for(i = 1; i < node_count; i++) {
+		c_u->phi1 = psi1[2*i-1];
+		c_u->phi2 = psi2[2*i-1];
+		sum += te_eval(c_u->expr);
+	}
+	psi_t[0] = psi1[psi_node_count-1];
+	psi_t[1] = psi2[psi_node_count-1];
+	free(t);
+	free(psi1);
+	free(psi2);
+	*integral = h*sum;
 }
 
-double integration_by_runge_romberg(double **mat_a, double t, double *phi,
-		sup_f *c_u, double a, double b, double eps)
+double calc_c_j(problem *p, int j, double eps)
 {
-  double h = 0.05, delta = 1.0, i_h, i_half_h;
+  double h = 0.05, delta = 1.0, i_h, i_half_h, psi_t[2];
   int m = 2;
   while(fabs(delta)>eps) {
-    i_half_h = integration_by_rectangle_h(mat_a, t, phi, c_u, a, b, h/2.0);
-    i_h = integration_by_rectangle_h(mat_a, t, phi, c_u, a, b, h);
+    integration_by_rectangle_h(p, j, h, &i_h, psi_t);
+    integration_by_rectangle_h(p, j, h/2.0, &i_half_h, psi_t);
     delta = (i_half_h-i_h)/(pow(2,m)-1);
     h = h/2.0;
   }
   //printf("delta = %.128lf\n", delta);
   //printf("h = %lf\n", h);
-  return i_half_h+delta;
-}
-
-void transposition(double **a, int n, double ***r)
-{
-  int i, j;
-  double **a_t= (double **) malloc(sizeof(double *)*n);
-  for(i = 0; i < n; i++)
-    a_t[i] = (double *) malloc(sizeof(double)*n);
-  for(i = 0; i < n; i++)
-    for(j = 0; j < n; j++)
-      a_t[i][j] = a[j][i];
-  *r = a_t;
-}
-
-void calc_c_j(double *c, double **a, double *x0, double t, int n, double **phi,
-		sup_f *c_u)
-{
-	int j;
-	double **alfa, **exp_alfa, *beta, **a_star;
-	alfa = (double **) malloc(sizeof(double *) * 2);
-	alfa[0] = (double *) malloc(sizeof(double) * 2);
-	alfa[1] = (double *) malloc(sizeof(double) * 2);
-	copy(alfa, 2, a);
-	mult_m_s(alfa, 2, t);
-	exp_alfa = expm(alfa, 2);
-	freemat(alfa, 2);
-	multiply_vec(exp_alfa, x0, 2, &beta);
-	freemat(exp_alfa, 2);
-	transposition(a, 2, &a_star);
-	for(j = 0; j < n; j++) {
-		c[j] = dot_product(beta, phi[j], 2) +
-			integration_by_runge_romberg(a_star, t, phi[j], c_u, 0, t, 0.001);
-	}
-	free(beta);
-	freemat(a_star, 2);
+  return dot_product(psi_t, p->x0, 2)+i_half_h+delta;
 }
 
 void get_omega(problem *p, double ***omega, int *omega_size)
 {
 	int i, j, n;
 	double *c;
-	double **temp_a;
-	temp_a = malloc(sizeof(double *) * 2);
-	temp_a[0] = malloc(sizeof(double) * 2);
-	temp_a[1] = malloc(sizeof(double) * 2);
-	for(i = 0; i < 2; i++)
-		for(j = 0; j < 2; j++) {
-			p->a[i][j].t = 1.0;
-			temp_a[i][j] = te_eval(p->a[i][j].expr);
-		}
 	n = p->n;
 	//print_input(&a, &x0, &t, &n, &c_u);
 	c = (double *) malloc(sizeof(double) * n);
-	calc_c_j(c, temp_a, p->x0, p->t, n, p->phi, &p->c_u);
-	freemat(temp_a, 2);
+	for(j = 0; j < n; j++)
+		c[j] = calc_c_j(p, j, 0.001);
 	//printf("VECTOR c\n");
 	//printvec(c, n);
+	//printf("T = %lf\n", p->t);
 	*omega = (double **) malloc(sizeof(double *) * n);
 	for(i = 0; i < n; i++)
 		(*omega)[i] = (double *) malloc(sizeof(double) * 2);
@@ -676,7 +569,7 @@ int main()
 	while(!glfwWindowShouldClose(plane->window))
 	{
 		if(is_animation) {
-			p.t += 1.0f;
+			p.t += 0.1f;
 			printf("t: %f\n", p.t);
 			printf("cp_count_vertices: %d\n", cp_count_vertices);
 

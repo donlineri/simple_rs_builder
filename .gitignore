@@ -3,6 +3,7 @@
 *.swo
 *.a
 *.o
+tags
 
 # cddlib
 

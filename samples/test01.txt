@@ -1,8 +1,8 @@
 Matrix A
-t+1
-0
-t*t
-t-1
+1/(t+1)
+1/(t^5+1)
+1/(t^5+1)
+1/(t+1)
 
 Vector x0
 0
@@ -15,4 +15,4 @@ N
 30
 
 c_u
-1 * sqrt(phi1^2 + phi2^2)
+0.1 * sqrt(phi1^2 + phi2^2)
