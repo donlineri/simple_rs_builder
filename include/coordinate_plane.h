@@ -30,6 +30,7 @@ void coordplane_shader_set_up(coordplane *plane);
 void coordplane_draw_axes(coordplane *plane);
 void coordplane_draw_numbering(coordplane *plane);
 void coordplane_delete(coordplane *plane);
+void coordplane_get_aclip(coordplane *plane, float *aclip);
 /*
  void coordplane_get_projmat(coordplane *plane, mat4 *projection);
  void coordplane_get_viewmat(coordplane *plane, mat4 *view);

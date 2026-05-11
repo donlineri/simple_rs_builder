@@ -4,6 +4,8 @@
 *.a
 *.o
 tags
+libcdd.a
+simple_rs_builder
 
 # cddlib
 

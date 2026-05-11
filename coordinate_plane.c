@@ -159,7 +159,7 @@ static int string_size(character *characters, const char *text)
 	return result;
 }
 
-void get_aclip(coordplane *plane, float *aclip)
+void coordplane_get_aclip(coordplane *plane, float *aclip)
 {
 	int width, height;
 	float width_height_ratio;
@@ -185,7 +185,7 @@ void coordplane_draw_numbering(coordplane *plane)
 	text_render_object *tro;
 	tro = plane->tro;
 
-	get_aclip(plane, aclip);
+	coordplane_get_aclip(plane, aclip);
 	glmc_mat4_identity(model);
 	a[0] = 0.1f*aclip[0];
 	a[1] = 0.1f*aclip[1];
@@ -364,7 +364,7 @@ void coordplane_shader_set_up(coordplane *plane)
 	mat4 projection, view, model;
 	vec3 a;
 
-	get_aclip(plane, aclip);
+	coordplane_get_aclip(plane, aclip);
 	glmc_ortho(-aclip[0], aclip[0], -aclip[1], aclip[1], 0.0f, 1.0f, projection);
 	glmc_mat4_identity(view);
 	a[0] = -plane->offset_x;
@@ -390,7 +390,7 @@ void coordplane_draw_axes(coordplane *plane)
 	glGetFloatv(GL_LINE_WIDTH, &save_line_width);
 	glLineWidth(2.0f);
 	glBindVertexArray(plane->axes_VAO);
-	get_aclip(plane, aclip);
+	coordplane_get_aclip(plane, aclip);
 	glmc_mat4_identity(model1);
 	glmc_mat4_identity(model2);
 	a[0] = 1.0f*aclip[0];

@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <cglm/call.h>
 #include "glad/glad.h"
+#include <GLFW/glfw3.h>
 #include "setoper.h"
 #include "cdd.h"
 #include "tinyexpr.h"
@@ -42,14 +43,27 @@ void draw_cp(unsigned int VAO, int count_vertices, unsigned int shader_id)
 	glDrawArrays(GL_TRIANGLE_FAN, 0, count_vertices);
 }
 
-void draw_dots(unsigned int VAO, int count_vertices, unsigned int shader_id)
+void draw_dots(coordplane *plane, unsigned int VAO, vec3 *pos, int pos_count,
+		unsigned int shader_id)
 {
-	int i;
+	int i, width, height;
+	float aclip[2];
+	mat4 model;
+	vec3 a;
 	shader_use(shader_id);
-	glLineWidth(2.0f);
 	glBindVertexArray(VAO);
-	for(i = 0; i < count_vertices / 4; i++)
-		glDrawArrays(GL_TRIANGLE_FAN, i*4, 4);
+	glfwGetWindowSize(plane->window, &width, &height);
+	coordplane_get_aclip(plane, aclip);
+	a[0] = 5*aclip[0]/width;
+	a[1] = 5*aclip[1]/height;
+	a[2] = 1.0f;
+	for(i = 0; i < pos_count; i++) {
+		glmc_mat4_identity(model);
+		glmc_translate(model, pos[i]);
+		glmc_scale(model, a);
+		shader_set_matrix(shader_id, "model", model);
+		glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	}
 }
 
 void swap_double(double *a, double *b)
@@ -141,7 +155,7 @@ void get_cp_vertices(double **omega, int omega_size, double **cp_vertices,
 }
 
 void prepare_object(unsigned int *VBO, unsigned int *VAO, int count_vertices,
-		double *vertices)
+		const double *vertices)
 {
 	glGenVertexArrays(1, VAO);
 	glGenBuffers(1, VBO);
@@ -409,11 +423,10 @@ void get_omega(problem *p, double ***omega, int *omega_size)
 	free(c);
 }
 
-void get_dots_vertices(double *cp_v, int cp_v_count, double **dots_v,
-		int *dots_v_count, float clip)
+void get_dots_pos(double *cp_v, int cp_v_count,
+		vec3 **dots_p, int *dots_p_count)
 {
 	int i, j, *cp_num_v, max_count, is_checked;
-	float size;
 	double *cp_dist_v;
 	cp_dist_v = malloc(sizeof(double) * cp_v_count);
 	cp_num_v = malloc(sizeof(int) * cp_v_count);
@@ -437,73 +450,14 @@ void get_dots_vertices(double *cp_v, int cp_v_count, double **dots_v,
 		i = cp_num_v[cp_v_count - 1 - j];
 		printf("extreme dot (x,y) = (%lf,%lf)\n", cp_v[i*6], cp_v[i*6+1]);
 	}
-	size = clip/250;
-	/* 
-	 * If you want to select all vertices of convex polygon, uncomment this code
-	 * and comment out code below
-	dots_v = malloc(sizeof(double) * (cp_v_count*6*4));
-	dots_v_count = 4*cp_v_count;
-	for(i = 0; i < cp_v_count; i++) {
-		(*dots_v)[i*6*4] = cp_v[i*6] + size;
-		(*dots_v)[i*6*4+1] = cp_v[i*6+1] - size;
-		(*dots_v)[i*6*4+2] = 0;
-		(*dots_v)[i*6*4+3] = .322f;
-		(*dots_v)[i*6*4+4] = .576f;
-		(*dots_v)[i*6*4+5] = .839f;
 
-		(*dots_v)[i*6*4+6] = cp_v[i*6] + size;
-		(*dots_v)[i*6*4+7] = cp_v[i*6+1] + size;
-		(*dots_v)[i*6*4+8] = 0;
-		(*dots_v)[i*6*4+9] = .322f;
-		(*dots_v)[i*6*4+10] = .576f;
-		(*dots_v)[i*6*4+11] = .839f;
-
-		(*dots_v)[i*6*4+12] = cp_v[i*6] - size;
-		(*dots_v)[i*6*4+13] = cp_v[i*6+1] + size;
-		(*dots_v)[i*6*4+14] = 0;
-		(*dots_v)[i*6*4+15] = .322f;
-		(*dots_v)[i*6*4+16] = .576f;
-		(*dots_v)[i*6*4+17] = .839f;
-
-		(*dots_v)[i*6*4+18] = cp_v[i*6] - size;
-		(*dots_v)[i*6*4+19] = cp_v[i*6+1] - size;
-		(*dots_v)[i*6*4+20] = 0;
-		(*dots_v)[i*6*4+21] = .322f;
-		(*dots_v)[i*6*4+22] = .576f;
-		(*dots_v)[i*6*4+23] = .839f;
-	}
-	*/
-	*dots_v = malloc(sizeof(double) * (max_count*6*4));
-	*dots_v_count = 4*max_count;
+	*dots_p = malloc(sizeof(vec3) * max_count);
+	*dots_p_count = max_count;
 	for(j = 0; j < max_count; j++) {
 		i = cp_num_v[cp_v_count - 1 - j];
-		(*dots_v)[j*6*4] = cp_v[i*6] + size;
-		(*dots_v)[j*6*4+1] = cp_v[i*6+1] - size;
-		(*dots_v)[j*6*4+2] = 0;
-		(*dots_v)[j*6*4+3] = .322f;
-		(*dots_v)[j*6*4+4] = .576f;
-		(*dots_v)[j*6*4+5] = .839f;
-
-		(*dots_v)[j*6*4+6] = cp_v[i*6] + size;
-		(*dots_v)[j*6*4+7] = cp_v[i*6+1] + size;
-		(*dots_v)[j*6*4+8] = 0;
-		(*dots_v)[j*6*4+9] = .322f;
-		(*dots_v)[j*6*4+10] = .576f;
-		(*dots_v)[j*6*4+11] = .839f;
-
-		(*dots_v)[j*6*4+12] = cp_v[i*6] - size;
-		(*dots_v)[j*6*4+13] = cp_v[i*6+1] + size;
-		(*dots_v)[j*6*4+14] = 0;
-		(*dots_v)[j*6*4+15] = .322f;
-		(*dots_v)[j*6*4+16] = .576f;
-		(*dots_v)[j*6*4+17] = .839f;
-
-		(*dots_v)[j*6*4+18] = cp_v[i*6] - size;
-		(*dots_v)[j*6*4+19] = cp_v[i*6+1] - size;
-		(*dots_v)[j*6*4+20] = 0;
-		(*dots_v)[j*6*4+21] = .322f;
-		(*dots_v)[j*6*4+22] = .576f;
-		(*dots_v)[j*6*4+23] = .839f;
+		(*dots_p)[j][0] = cp_v[i*6];
+		(*dots_p)[j][1] = cp_v[i*6+1];
+		(*dots_p)[j][2] = 0;
 	}
 	free(cp_dist_v);
 	free(cp_num_v);
@@ -535,18 +489,29 @@ void deinit_problem(problem *p)
 	te_free(p->c_u.expr);
 }
 
-void process_input(GLFWwindow *window, int *is_animation)
+void process_input(GLFWwindow *window, int *is_animation, int
+		*is_extreme_problem)
 {
 	if(glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
 		*is_animation = 1;
+	if(glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+		*is_extreme_problem = 1;
 }
 
 int main()
 {
 	coordplane *plane;
-	unsigned int cp_VBO, cp_VAO, dots_VBO, dots_VAO;
-	int omega_size, cp_count_vertices, dots_count_vertices, is_animation;
-	double *cp_data, *dots_data, **omega, prev_t, cur_t;
+	unsigned int cp_VBO, cp_VAO, dot_VBO, dot_VAO;
+	int omega_size, cp_count_vertices, dots_pos_count, is_animation = 0,
+			is_extreme_problem = 0;
+	double *cp_data, **omega, prev_t, cur_t;
+	vec3 *dots_pos;
+	const double dot_data[24] = {
+		1.0, -1.0, 0, .322, .576, .839,
+		1.0, 1.0, 0, .322, .576, .839,
+		-1.0, 1.0, 0, .322, .576, .839,
+		-1.0, -1.0, 0, .322, .576, .839,
+	};
 	problem p;
 
 	parse_input(&p.a, &p.x0, &p.t, &p.n, &p.c_u);
@@ -554,17 +519,14 @@ int main()
 	coordplane_create(&plane);
 	get_direction(&p.phi, p.n);
   dd_set_global_constants(); /* First, this must be called once to use cddlib. */
-	is_animation = 0;
 
 	get_omega(&p, &omega, &omega_size);
 	get_cp_vertices(omega, omega_size, &cp_data, &cp_count_vertices);
 	freemat(omega, omega_size);
-	get_dots_vertices(cp_data, cp_count_vertices, &dots_data,
-			&dots_count_vertices, plane->clip);
+	get_dots_pos(cp_data, cp_count_vertices, &dots_pos, &dots_pos_count);
 	prepare_object(&cp_VBO, &cp_VAO, cp_count_vertices, cp_data);
 	free(cp_data);
-	prepare_object(&dots_VBO, &dots_VAO, dots_count_vertices, dots_data);
-	free(dots_data);
+	prepare_object(&dot_VBO, &dot_VAO, 4, dot_data);
 
 	while(!glfwWindowShouldClose(plane->window))
 	{
@@ -575,7 +537,7 @@ int main()
 
 			prev_t = glfwGetTime();
 			delete_object(cp_VBO, cp_VAO);
-			delete_object(dots_VBO, dots_VAO);
+			free(dots_pos);
 			cur_t = glfwGetTime();
 			printf("DEBUG: delete_object time: %lf\n", cur_t-prev_t);
 
@@ -595,34 +557,34 @@ int main()
 			printf("DEBUG: freemat time: %lf\n", cur_t-prev_t);
 
 			prev_t = glfwGetTime();
-			get_dots_vertices(cp_data, cp_count_vertices, &dots_data,
-					&dots_count_vertices, plane->clip);
+			get_dots_pos(cp_data, cp_count_vertices, &dots_pos, &dots_pos_count);
 			cur_t = glfwGetTime();
-			printf("DEBUG: get_dots_vertices time: %lf\n", cur_t-prev_t);
+			printf("DEBUG: get_dots_pos time: %lf\n", cur_t-prev_t);
 
 			prev_t = glfwGetTime();
 			prepare_object(&cp_VBO, &cp_VAO, cp_count_vertices, cp_data);
 			free(cp_data);
-			prepare_object(&dots_VBO, &dots_VAO, dots_count_vertices, dots_data);
-			free(dots_data);
 			cur_t = glfwGetTime();
 			printf("DEBUG: prepare_object time: %lf\n", cur_t-prev_t);
 
 			is_animation = 0;
 		}
 		coordplane_process_input(plane);
-		process_input(plane->window, &is_animation);
+		process_input(plane->window, &is_animation, &is_extreme_problem);
 		coordplane_fill_with_color(0.2f, 0.3f, 0.3f);
 		coordplane_shader_set_up(plane);
 		coordplane_draw_axes(plane);
 		draw_cp(cp_VAO, cp_count_vertices, plane->shader_id);
-		draw_dots(dots_VAO, dots_count_vertices, plane->shader_id);
+		if(is_extreme_problem) {
+			draw_dots(plane, dot_VAO, dots_pos, dots_pos_count, plane->shader_id);
+		}
 		coordplane_draw_numbering(plane);
 		glfwSwapBuffers(plane->window);
 		glfwPollEvents();
 	}
 	delete_object(cp_VBO, cp_VAO);
-	delete_object(dots_VBO, dots_VAO);
+	free(dots_pos);
+	delete_object(dot_VBO, dot_VAO);
 	coordplane_delete(plane);
 	deinit_problem(&p);
   dd_free_global_constants();  /* At the end, this should be called. */
