@@ -1,18 +1,21 @@
-Matrix A
+#Matrix A
 0
 0
 0
 0
 
-Vector x0
+#Vector x0
 0
 0
 
-T
+#T
 1
 
-N
-700
+#N
+1000
 
-c_u
+#c_u
 1*max(abs(phi1),abs(phi2))
+
+#f
+(x*x + y*y)^(0.5)
