@@ -431,8 +431,8 @@ void get_omega(problem *p, double ***omega, int *omega_size)
 	*omega_size = n;
 	for(i = 0; i < n; i++) {
 		(*omega)[i][0] = c[i];
-		(*omega)[i][1] = -p->phi[i][1];
-		(*omega)[i][2] = -p->phi[i][0];
+		(*omega)[i][1] = -p->phi[i][0];
+		(*omega)[i][2] = -p->phi[i][1];
 	}
 	free(c);
 }
@@ -464,6 +464,14 @@ void get_dots_pos(double *cp_v, int cp_v_count, func2 *f,
 		printf("extreme dot (x,y) = (%lf,%lf)\n", cp_v[i*6], cp_v[i*6+1]);
 		f->x = cp_v[i*6];
 		f->y = cp_v[i*6+1];
+		printf("f(%lf,%lf) = %lf\n", (*f).x, (*f).y, te_eval((*f).expr));
+	}
+	*/
+	/*
+	for(j = 0; j < cp_v_count; j++) {
+		printf("dot (x,y) = (%lf,%lf)\n", cp_v[j*6], cp_v[j*6+1]);
+		f->x = cp_v[j*6];
+		f->y = cp_v[j*6+1];
 		printf("f(%lf,%lf) = %lf\n", (*f).x, (*f).y, te_eval((*f).expr));
 	}
 	*/
@@ -593,7 +601,7 @@ int main(int argc, char **argv)
 	problem p;
 
 	parse_input(&p.a, &p.x0, &p.t, &p.n, &p.c_u, &p.f);
-	//print_input(&p.a, &p.x0, &p.t, &p.n, &p.c_u, &p.f);
+	print_input(&p.a, &p.x0, &p.t, &p.n, &p.c_u, &p.f);
 	coordplane_create(&plane);
 	get_direction(&p.phi, p.n);
   dd_set_global_constants(); /* First, this must be called once to use cddlib. */
